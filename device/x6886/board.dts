@@ -1,0 +1,17 @@
+/dts-v1/;
+
+// Infinix Hot 60 Pro+ X6886. Started by tools/boards.py new from x6886-base.dts.
+// Every value here is to be checked against the device before it is relied on (Documentation/porting.md).
+/ {
+	name = "x6886";                         // what the loader puts in /chosen/darwin-board
+	description = "Infinix Hot 60 Pro+ X6886";
+	soc = "mt6789";
+
+	// Nothing yet: a feature is listed once its driver has been seen to work on this board
+	// (Documentation/porting.md goes through them in the order to try).
+	features = <>;
+
+	backlight {
+		type = "soft";
+	};
+};

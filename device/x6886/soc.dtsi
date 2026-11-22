@@ -1,0 +1,20 @@
+/dts-v1/;
+
+// mt6789. Started by tools/boards.py new from x6886-base.dts.
+// What every board with this SoC shares: where its blocks are (Documentation/porting.md).
+/ {
+	name = "mt6789";
+	description = "mt6789";
+
+	// What the loader (arch/arm64/boot/) tells the kernel of the machine, for boards with a loader { } section.
+	platform {
+		// io-base = <0x00400000>;      // TO FILL IN for loader { }: one window over the SoC's peripherals, never 0
+		// io-size = <0x3fc00000>;      // (these two are what the Snapdragon 7-series ports use)
+		psci = "smc";                   // the psci node's method: "smc" or "hvc"
+		gic-dist = <0x0c000000>;        // the arm,gic-v3 node's reg: its first entry
+		gic-redist = <0x0c040000>;      // ... its second
+		cores = <8>;                    // the cpu@ nodes
+		core-shift = <8>;               // where the core's number is in its reg: 8 for 0x000, 0x100 ..., 0 for 0, 1 ...
+		small-cores = <0x3f>;           // optional: a bit for each core of the lowest capacity-dmips-mhz
+	};
+};
