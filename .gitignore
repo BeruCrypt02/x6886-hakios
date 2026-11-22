@@ -1,0 +1,12 @@
+tools/
+refs/*/
+build/
+out/
+*.img
+*.bin
+*.apfs
+*.dtb
+*.log
+.firecrawl/
+__pycache__/
+*.pyc
