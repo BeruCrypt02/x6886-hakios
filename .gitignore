@@ -10,3 +10,5 @@ out/
 .firecrawl/
 __pycache__/
 *.pyc
+ios27/
+*.ipsw
