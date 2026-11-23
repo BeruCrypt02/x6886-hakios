@@ -72,10 +72,51 @@ audio amp      aw87xxx_pa (i2c 6-0058, 6-0059)
 NFC            tms,nfc (i2c 0-0028)
 ```
 
+## Fingerprint (optical FOD)
+
+The spec PDF called it `tran_keys`, which was misleading. The DTB is unambiguous:
+
+```
+/soc/spi3@11013000/fingerprint@0
+  compatible         = "tran_fp_legacy"
+  spi-max-frequency  = <0x19bfcc0>   (27 MHz)
+  irq-gpio           = gpio 0x0d (active high per interrupts <0x0d 0x01>)
+  reset-gpio         = gpio 0x77
+  pwr-gpio           = gpio 0x3b (tran,gpio_pwr)
+  fod_location_xy    = "540,2210"    (center of the FOD circle, display pixels)
+  extra flag         = goodix;
+  status             = "okay"
+alias goodix_fp = "/soc/fingerprint"   (compatible "mediatek,goodix-fp")
+```
+
+So the sensor is **Goodix**, not Silead and not FocalTech (FocalTech is the touch
+controller on spi1). It sits on **spi3**, separate from touch. The `goodix;`
+flag plus the `mediatek,goodix-fp` alias confirm the vendor. The `tran_fp_legacy`
+compatible is Transsion's wrapper name and is not an upstream Linux binding.
+
+GPIO controller is `pinctrl@10005000`, phandle `0x49`, 188 pins (`gpio-ranges
+<0x49 0 0 0xbc>`), base address `0x10005000`. IRQ for fp uses EINT 0x0d.
+
+## SPI map (from DTB + sysfs)
+
+```
+spi0  1100a000   (unused by panel/touch/fp)
+spi1  11010000   focaltech ft3682g touch, 8 MHz, populates spi1.0
+spi2  11012000
+spi3  11013000   goodix optical fingerprint, 27 MHz, populates spi3.0
+spi4  11018000
+spi5  11019000
+```
+
 ## Not yet resolved
 
-- Which GPIO numbers `0x49` phandle maps to (need gpio controller node from DTB)
-- Backlight regulator node behind `<0x1e5>`
-- Exact DSI timing from the panel driver's init sequence (need the panel DT node's
-  `dsi-on` / `lcm` driver, not present in the stock DTB; vendor module holds it)
-- The second supplier's data is kept for a future fallback, not for this board
+- Backlight regulator node behind `<0x1e5>` (dvdd-supply for the panel)
+- Exact DSI init sequence for nt37706a. The timing/init lives in the vendor
+  lcm driver, not in the stock DTB; need the `nt37706a` driver source or a
+  panel init dump before writing the DSI driver.
+- Goodix FOD sensor register map: `tran_fp_legacy` is a downstream-only binding.
+  Need an upstream-equivalent Goodix optical fp datasheet or a logic capture
+  before writing matching/spi commands. Bootloader/firmware blobs in otadump
+  may carry the init sequence.
+- The second supplier's data (vtdr6126a + chct5560) is kept for a future
+  fallback, not for this board.
