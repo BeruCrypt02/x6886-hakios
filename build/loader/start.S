@@ -47,8 +47,9 @@ primary_entry:
     adr     x0, _start
     sub     x0, x0, #0x8000
     mov     sp, x0
-    ldr     x0, =__bss_start
-    ldr     x1, =__bss_end
+    /* PC-relative BSS clear: works at whatever address LK actually loads us. */
+    adr     x0, __bss_start
+    adr     x1, __bss_end
 1:  cmp     x0, x1
     b.ge    2f
     str     xzr, [x0], #8

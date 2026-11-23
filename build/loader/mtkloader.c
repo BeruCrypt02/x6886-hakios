@@ -3486,12 +3486,27 @@ static const char cam_probe_flag[] = "HAKIOS:CAM-PROBE";
 
 void mtkloader_main(uint64_t dtb)
 {
+	/* Say we are alive before anything that can hang. Mirrored to both pstore zones. */
+	plog_reset();
+	out("== mtkloader alive: " HAKIOS_BOARD_NAME "/" HAKIOS_SOC_NAME " ==\n");
+	out("dtb=");
+	out_hex(dtb);
+	out("\n");
+
 	uint32_t mark = marker_get();
+	out("mark=");
+	out_hex(mark);
+	out("\n");
 
 	wdt_disable();
 	lk_dtb = dtb;
 	display_find();
 	fbcon_init(fb_base, fb_pitch, 0, 1);
+	out("fb=");
+	out_hex(fb_base);
+	out(" pitch=");
+	out_hex(fb_pitch);
+	out("\n");
 
 	if (mark == MARK_DONE) {
 		/* XNU's log was saved when it came back; leave ramoops as it is. */

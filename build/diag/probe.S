@@ -8,8 +8,8 @@
  * Register contract:
  *   x19 = real load address (from ADR, PC-relative)
  *   x20 = LK's device tree
- *   x21 = ramoops data write cursor (post-increment)
- *   x22 = ramoops data start (to compute the count at the end)
+ *   x22 = ramoops zone A data start (to compute the count at the end)
+ *   x23/x24 = zone A / zone B write cursors
  *   puts reads its string from x1; hex64 reads its value from x0.
  */
 .global _start
@@ -45,8 +45,7 @@ real_start:
     movk    x1, #0x11, lsl #16
     movk    x1, #0x4811, lsl #32
     add     x24, x1, #12
-    mov     x21, x23                /* active cursor starts at zone A */
-    mov     x22, x21
+    mov     x22, x23                /* zone A data start, for the final count */
 
     movz    x0, #0x4244
     movk    x0, #0x4347, lsl #16    /* 0x43474244 "DBGC" */
@@ -228,7 +227,7 @@ real_start:
     bl      puts
 
     /* pstore reads data at (start - size); with data at 0..N-1 set both to N */
-    sub     x0, x21, x22            /* N = end - start, positive */
+    sub     x0, x23, x22            /* N = end - start, positive */
     movz    x1, #0x0000
     movk    x1, #0x4809, lsl #32
     str     w0, [x1, #4]            /* zone A start = N */
@@ -247,15 +246,17 @@ real_start:
     mov     x5, #0x40000
     add     x2, x19, x5             /* src = load + 0x40000 */
 
-    /* relocate the copy stub to 0x480a0000 (inside ramoops, 64KB from our log) */
+    /* relocate the copy stub to 0x480a0000 (inside ramoops, 64KB from our log).
+     * Use x6 as the fixed base and x11 as the moving pointer, so br x6 is the stub entry. */
     movz    x6, #0x0000
     movk    x6, #0x480a, lsl #32
+    mov     x11, x6
     adr     x7, chain_stub
     adr     x8, chain_stub_end
     sub     x9, x8, x7
 stub_copy:
     ldr     x10, [x7], #8
-    str     x10, [x6], #8
+    str     x10, [x11], #8
     subs    x9, x9, #8
     b.ne    stub_copy
     dsb     sy
@@ -267,7 +268,7 @@ stub_copy:
     mov     x0, x20
     mov     x3, x4                  /* length */
     mov     x4, x19                 /* entry = Android Image at load address */
-    br      x6
+    br      x6                      /* x6 still = 0x480a0000, the stub's first instruction */
 
 hang:
     wfe
