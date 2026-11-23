@@ -51,6 +51,12 @@
 #define OVL_L0_CON           0x030
 #define OVL_L0_PITCH         0x044
 #define OVL_L0_ADDR          0xf40
+/* MT6789 OVL0 layer register spacing (Subagent A is proving these on the real panel).
+ * CON/PITCH advance 0x20 per layer, the layer's buffer address advances 0x20 as well. */
+#define OVL_LAYERS           4u
+#define OVL_LN_CON(n)        (OVL_L0_CON  + (n) * 0x20u)
+#define OVL_LN_PITCH(n)      (OVL_L0_PITCH + (n) * 0x20u)
+#define OVL_LN_ADDR(n)       (OVL_L0_ADDR  + (n) * 0x20u)
 
 static inline uint32_t rd32(uint64_t a) { return *(volatile uint32_t *)a; }
 static inline void wr32(uint64_t a, uint32_t v) { *(volatile uint32_t *)a = v; }
@@ -115,20 +121,17 @@ struct ramoops_hdr {
 #define PLOG_DATA ((volatile char *)(RAMOOPS_CONSOLE + sizeof(struct ramoops_hdr)))
 #define PLOG_CAP  (RAMOOPS_CONSOLE_SIZE - sizeof(struct ramoops_hdr))
 
-/* Mirror the console into the second candidate zone: the cmdline base (0x48090000) and the
- * zone the working MTK reference uses (0x4811f000). Whichever Android reads, it gets our log. */
-#define RAMOOPS_CONSOLE2      0x4811f000ULL
-#define PLOG_HDR2  ((volatile struct ramoops_hdr *)RAMOOPS_CONSOLE2)
-#define PLOG_DATA2 ((volatile char *)(RAMOOPS_CONSOLE2 + sizeof(struct ramoops_hdr)))
-
+/*
+ * There is no second console zone. The old mirror at 0x4811f000 lands INSIDE the pmsg
+ * zone and overwrites Android's HAKIOS:BOOT-* request and our own log back-channel.
+ * The framebuffer banner (fbcon_*) is the primary, trustworthy boot channel; pstore is
+ * secondary. The zone addresses come from board.toml, derived from the ramoops cmdline.
+ */
 static inline void plog_reset(void)
 {
 	PLOG_HDR->sig = RAMOOPS_SIG;
 	PLOG_HDR->start = 0;
 	PLOG_HDR->size = 0;
-	PLOG_HDR2->sig = RAMOOPS_SIG;
-	PLOG_HDR2->start = 0;
-	PLOG_HDR2->size = 0;
 }
 
 static inline void plog_putc(char c)
@@ -140,7 +143,6 @@ static inline void plog_putc(char c)
 		at = size = 0;
 	}
 	PLOG_DATA[at] = c;
-	PLOG_DATA2[at] = c;
 	if (++at == PLOG_CAP) {
 		at = 0;
 	}
@@ -149,8 +151,6 @@ static inline void plog_putc(char c)
 	}
 	PLOG_HDR->start = at;
 	PLOG_HDR->size = size;
-	PLOG_HDR2->start = at;
-	PLOG_HDR2->size = size;
 }
 
 /* ---- framebuffer text ---- */

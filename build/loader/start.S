@@ -43,18 +43,28 @@ primary_entry:
     b       20f
 10: msr     vbar_el1, x2
 20:
-    /* Stack just below the load address (0x40078000), BSS cleared */
-    adr     x0, _start
-    sub     x0, x0, #0x8000
-    mov     sp, x0
-    /* PC-relative BSS clear: works at whatever address LK actually loads us. */
-    adr     x0, __bss_start
-    adr     x1, __bss_end
+    /*
+     * Clear BSS first: the stacks live in it now, so no stack may be touched before this.
+     * PC-relative, so it works at whatever address LK actually loads us.
+     */
+    adrp    x0, __bss_start
+    add     x0, x0, :lo12:__bss_start
+    adrp    x1, __bss_end
+    add     x1, x1, :lo12:__bss_end
 1:  cmp     x0, x1
     b.ge    2f
     str     xzr, [x0], #8
     b       1b
 2:
+    /*
+     * Stacks are INSIDE the image's BSS, addressed PC-relatively. LK puts _start at
+     * 0x40010000 and DRAM begins at 0x40000000: the old "_start - 0x8000/0x10000/0x18000"
+     * stacks were at/below DRAM base, so the first push landed in unbacked memory and
+     * the loader died silently before the first line of output.
+     */
+    adrp    x0, primary_stack_top
+    add     x0, x0, :lo12:primary_stack_top
+    mov     sp, x0
     mov     x0, x19
     bl      mtkloader_main
 3:  wfe
@@ -71,6 +81,16 @@ jump_to_kernel:
     b.ne    1f
     mov     x2, #(1 << 31)      /* HCR_EL2.RW: EL1 is AArch64 */
     msr     hcr_el2, x2
+    /* XNU wants EL1 with the MMU and caches off, whatever ATF/LK left in SCTLR_EL1. */
+    mrs     x2, sctlr_el1
+    bic     x2, x2, #0x1
+    bic     x2, x2, #0x4
+    bic     x2, x2, #0x1000
+    msr     sctlr_el1, x2
+    dsb     sy
+    ic      iallu
+    dsb     sy
+    isb
     mov     x2, #0x3c5          /* EL1h, DAIF masked */
     msr     spsr_el2, x2
     msr     elr_el2, x16
@@ -80,7 +100,7 @@ jump_to_kernel:
     bic     x2, x2, #0x4
     bic     x2, x2, #0x1000
     msr     sctlr_el1, x2
-    isb
+    dsb     sy
     ic      iallu
     dsb     sy
     isb
@@ -144,8 +164,9 @@ xnu_return_stub:
     str     x10, [x9, #16]
     mrs     x10, ttbr1_el1
     str     x10, [x9, #24]
-    adr     x9, _start
-    sub     sp, x9, #0x8000
+    adrp    x9, primary_stack_top
+    add     x9, x9, :lo12:primary_stack_top
+    mov     sp, x9
     mov     x0, x19
     mov     x1, x20
     mov     x2, x21
@@ -214,8 +235,9 @@ watcher_entry:
     adrp    x9, mtk_vectors
     add     x9, x9, :lo12:mtk_vectors
     msr     vbar_el1, x9
-    adr     x9, _start
-    sub     sp, x9, #0x18000
+    adrp    x9, watcher_stack_top
+    add     x9, x9, :lo12:watcher_stack_top
+    mov     sp, x9
     bl      watcher_main
 1:  wfe
     b       1b
@@ -321,8 +343,9 @@ fault_common:
 1:  mrs     x1, esr_el1
     mrs     x2, elr_el1
     mrs     x3, far_el1
-2:  adr     x5, _start
-    sub     sp, x5, #0x10000
+2:  adrp    x5, fault_stack_top
+    add     x5, x5, :lo12:fault_stack_top
+    mov     sp, x5
     bl      loader_fault
 3:  wfe
     b       3b
@@ -347,3 +370,16 @@ mtk_vectors:
     vec 0x680
     vec 0x700
     vec 0x780
+
+/* Stacks inside the loaded image, not in unbacked memory below DRAM's base. */
+    .section .bss
+    .balign 64
+primary_stack_bottom:
+    .space 0x8000
+primary_stack_top:
+fault_stack_bottom:
+    .space 0x4000
+fault_stack_top:
+watcher_stack_bottom:
+    .space 0x8000
+watcher_stack_top:

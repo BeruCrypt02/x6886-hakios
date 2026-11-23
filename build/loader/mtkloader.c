@@ -62,9 +62,10 @@
 #define XNU_SLIDE           (XNU_PHYS_BASE - KERNEL_VIRT_BASE)
 #define PAGE_SIZE_MAX       0x4000ULL
 
-/* Seconds XNU may run before the watchdog resets into Android; 0: run until reset by hand. */
+/* Seconds XNU may run before the watchdog resets into Android. Bringup needs a safety net:
+ * a hung kernel must not leave the phone stuck. 0: run until reset by hand. */
 #ifndef XNU_WDT_SECONDS
-#define XNU_WDT_SECONDS     0
+#define XNU_WDT_SECONDS     30
 #endif
 /* Seconds after which the second core takes a snapshot of XNU and resets; 0: no watcher. */
 #ifndef XNU_WATCH_SECONDS
@@ -122,7 +123,7 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
 #define TIMER_PROBE         0
 #endif
 #ifndef MENU_DEFAULT_XNU
-#define MENU_DEFAULT_XNU    0
+#define MENU_DEFAULT_XNU    1
 #endif
 /*
  * 1: the kernel's text console on the screen (-v). It is a slow way to run -- scrolling reads
@@ -130,7 +131,7 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
  * it and the log comes back through the loader instead (v_display = 1 says "graphics mode").
  */
 #ifndef XNU_VERBOSE
-#define XNU_VERBOSE         0
+#define XNU_VERBOSE         1
 #endif
 /* More for the kernel's command line: cores, the clock (epoch=), whatever a run wants to try. */
 #ifndef XNU_EXTRA_ARGS
@@ -146,8 +147,10 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
  * bsd/dev/mtk_emmc.c), the default; 0: it is read into DRAM here as md0 -- 2.4 GB of the kernel's 4 GB,
  * wired from the start, and three and a half minutes of every boot (run 320).
  */
+/* X6886 is UFS-only: there is no eMMC root for the kernel to read. The APFS system image
+ * is read into DRAM from the xnusys GPT partition and handed to XNU as md0. */
 #ifndef XNU_ROOT_EMMC
-#define XNU_ROOT_EMMC       1
+#define XNU_ROOT_EMMC       0
 #endif
 #if XNU_ROOT_EMMC
 #define XNU_ROOT_ARG        "rd=md0 emmc_root=1"     /* (rd=md0 for libignition's "ramdisk" boot) */
@@ -425,18 +428,45 @@ static uint32_t marker_get(void)
 static uint64_t fb_base;
 static uint32_t fb_pitch;
 
-/* LK's layer as OVL0 scans it, if it is where LK said; LK's values otherwise. */
+/* 1080 rounded to LK's 32-pixel alignment, times four bytes per pixel. */
+#define FB_PITCH_FALLBACK   4352u
+#define FB_PITCH_MAX        8192u
+
+/*
+ * Find the framebuffer OVL0 is actually scanning. LK's board values can be stale (the old
+ * 0x1e00 = 7680 pitch was a different phone's). Inspect every layer OVL_SRC_CON says is
+ * enabled, and take the first whose address is inside LK's framebuffer allocation and
+ * whose pitch is a plausible 32-bpp stride for this panel. The old upper bound of 4096
+ * was below PANEL_W*4 (4320), so it could never be true and the stale fallback always won.
+ */
 static void display_find(void)
 {
-	uint32_t addr = rd32(OVL0_BASE + OVL_L0_ADDR);
-	uint32_t pitch = rd32(OVL0_BASE + OVL_L0_PITCH) & 0xffff;
+	uint32_t src = rd32(OVL0_BASE + OVL_SRC_CON);
 
 	fb_base = LK_FB_BASE;
-	fb_pitch = LK_FB_PITCH;
-	if (addr >= LK_FB_BASE && addr < LK_FB_BASE + LK_FB_SIZE && pitch >= PANEL_W * 4 && pitch <= 4096) {
-		fb_base = addr;
-		fb_pitch = pitch;
+	fb_pitch = FB_PITCH_FALLBACK;
+	for (uint32_t layer = 0; layer < OVL_LAYERS; layer++) {
+		uint32_t addr, pitch;
+
+		if (!(src & (1u << layer))) {
+			continue;
+		}
+		addr = rd32(OVL0_BASE + OVL_LN_ADDR(layer));
+		pitch = rd32(OVL0_BASE + OVL_LN_PITCH(layer)) & 0xffffu;
+		if (addr >= LK_FB_BASE && addr < LK_FB_BASE + LK_FB_SIZE &&
+		    pitch >= PANEL_W * 4 && pitch <= FB_PITCH_MAX) {
+			fb_base = addr;
+			fb_pitch = pitch;
+			break;
+		}
 	}
+	out("OVL0 SRC_CON ");
+	out_hex(src);
+	out(", fb ");
+	out_hex(fb_base);
+	out(" pitch ");
+	out_dec(fb_pitch);
+	out("\n");
 }
 
 /* Opaque pixels only from here on: XNU's console writes alpha 0. */
@@ -471,7 +501,7 @@ static void display_alpha_off(void)
 static const struct payload_header *payload_find(void)
 {
 	const volatile uint64_t *hdr = (const volatile uint64_t *)_start;
-	uint64_t off = hdr[6]; /* res3 */
+	uint64_t off = hdr[6]; /* Image header 0x30 (res4): chainboot-x6886.py writes the XNUP offset here */
 	const struct payload_header *ph = (const struct payload_header *)((uint64_t)_start + off);
 
 	if (off == 0 || (off & 15) || ph->magic != PAYLOAD_MAGIC) {
@@ -1074,7 +1104,7 @@ static void __attribute__((noreturn)) chain_android(void)
 {
 	const volatile uint64_t *hdr = (const volatile uint64_t *)_start;
 	const volatile uint32_t *img = (const volatile uint32_t *)((uint64_t)_start + CHAIN_OFFSET);
-	uint64_t image_size = (hdr[5] + 7) & ~7ULL; /* res2 */
+	uint64_t image_size = (hdr[5] + 7) & ~7ULL; /* Image header 0x28 (res3): Android Image length */
 
 	marker_set(0);
 	if (image_size == 0 || img[14] != 0x644d5241u) { /* "ARM\x64" */
@@ -2227,6 +2257,44 @@ static void big_cores_clock(void)
 }
 #endif /* HAKIOS_LOADER_BIG_CORES_CLOCK */
 
+/*
+ * Three seconds of diagnostics on the panel AND in pstore before entering xnu-12377, with
+ * the TOPRGU kicked throughout so a bad jump brings Android back instead of hanging the
+ * phone. The framebuffer is the primary channel: the pstore zone addresses are derived
+ * from the ramoops cmdline, not measured on the device.
+ */
+static void boot_banner(uint64_t entry_pa)
+{
+	uint64_t el, xnup;
+	const struct payload_header *ph = payload_find();
+
+	__asm__ volatile("mrs %0, CurrentEL" : "=r"(el));
+	el = (el >> 2) & 3u;
+	xnup = ph ? (uint64_t)ph : PAYLOAD_STAGE;
+
+	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
+	fbc.x = 0;
+	fbc.y = fbc.top = 0;
+	fbc.scale = 2;
+	fbc.fg = 0xffffffffu;
+
+	out("\n=== HakiOS xnu-12377 handoff ===\n");
+	out("EL        "); out_dec(el); out("\n");
+	out("load      "); out_hex((uint64_t)_start); out("\n");
+	out("LK dtb    "); out_hex(lk_dtb); out("\n");
+	out("OVL0      "); out_hex(OVL0_BASE); out(" src "); out_hex(rd32(OVL0_BASE + OVL_SRC_CON)); out("\n");
+	out("fb        "); out_hex(fb_base); out(" pitch "); out_dec(fb_pitch); out("\n");
+	out("XNUP      "); out_hex(xnup); out("\n");
+	out("XNUP ent  "); out_hex(entry_pa); out("\n");
+	out("jump in 3s (TOPRGU kick)\n");
+
+	for (int i = 0; i < 12; i++) {
+		wr32(TOPRGU_RESTART, TOPRGU_RESTART_KEY);
+		dbg_delay_ms(250);
+	}
+	fbc.scale = 1;
+}
+
 static void __attribute__((noreturn)) run_xnu(void)
 {
 	struct payload_info pi;
@@ -2506,6 +2574,14 @@ static void __attribute__((noreturn)) run_xnu(void)
 		__asm__ volatile("dc cvac, %0" : : "r"(at));
 	}
 	__asm__ volatile("dsb sy");
+	/* Everything we wrote with the MMU off must be in RAM before XNU's own MMU starts. */
+	uint64_t kern_pa = kva_to_pa(0xfffffff007004000ULL);
+
+	dcache_clean_range(kern_pa, kern_hi - kern_pa);
+	dcache_clean_range(rd_pa, rd_size);
+	dcache_clean_range(dt_pa, dt_len);
+	dcache_clean_range(ba_pa, sizeof(*ba));
+	boot_banner(kva_to_pa(entry_va));
 	out("Jumping to XNU...\n");
 	jump_to_kernel(kva_to_pa(entry_va), ba_pa);
 	__builtin_unreachable();

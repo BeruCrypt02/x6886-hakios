@@ -5,10 +5,17 @@ soc = "mt6789"
 features = ["ufs"]
 
 [loader]
-xnu_base = 0xC0000000
-xnu_size = 0x30000000
-kernel_load = 0x40080000
-chain_stub = 0x40080000
+# XNU's window must hold the whole APFS system image (load_system_image() has no size
+# clamp). Base 5 GiB + 0xff600000 ends at 0x23f600000, 0x9ffff below the top of DRAM
+# (0x23ffdffff) -- clear of ATF/LK's reserved top pages. The old 0xC0000000+0x30000000
+# window was only 768 MB and silently overran everything when the ~4 GB image was read.
+xnu_base = 0x140000000
+xnu_size = 0x0ff600000
+# /proc/iomem on X6886 reports "40010000-... : Kernel code": LK puts the Image at
+# 0x40010000, not the MT6768/X6826B value 0x40080000. The loader is linked here and
+# every PC-relative symbol (xnu_return_stub, BSS stacks) depends on it.
+kernel_load = 0x40010000
+chain_stub = 0x40010000
 marker = 0x80000000
 panic_log = 0x80100000
 panic_log_size = 0x100000
@@ -18,14 +25,21 @@ core_order = [0, 6, 7, 1, 2, 3, 4, 5]
 system_partition = "xnusys"
 
 [ramoops]
-console = 0x48090000
+# ramoops region is 0xe0000 @ 0x48090000. Linux carves dmesg (0x20000) first, then
+# console (0x40000), then pmsg (0x80000): 0x48090000 + 0x20000 -> 0x480b0000 console,
+# + 0x40000 -> 0x480f0000 pmsg, ending exactly at 0x48170000. The old values pointed
+# console at the region base (dmesg) and pmsg into the console zone. ASSUMPTION: the
+# dmesg/record zone is 0x20000; framebuffer banner is the primary log channel.
+console = 0x480b0000
 console_size = 0x40000
-pmsg = 0x480D0000
+pmsg = 0x480f0000
 pmsg_size = 0x80000
 
 [display]
 fb_base = 0xfe0c0000
 fb_size = 0x1f30000
-fb_pitch = 7680
+# 1080 rounded up to LK's 32-pixel alignment = 1088 * 4 B = 4352. The stale 7680
+# (1920*4) made the fallback FB unusable; display_find() now reads OVL0's real pitch.
+fb_pitch = 4352
 width = 1080
 height = 2400

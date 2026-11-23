@@ -6,6 +6,8 @@
 
 #define UFS_BASE            HAKIOS_SOC_UFS
 #define UFS_BLOCK_BYTES     4096u
+/* LUN 0/1 are the 4 MB boot LUNs; the GPT, super and userdata live on the main LUN 2. */
+#define UFS_MAIN_LUN        2u
 
 #define UFSHC_CAP           0x000u
 #define UFSHC_VER           0x008u
@@ -149,7 +151,7 @@ static int ufs_init(uint64_t list_phys)
     return 1;
 }
 
-static int ufs_read(uint64_t lba, uint32_t blocks, void *dst)
+static int ufs_read_lun(uint32_t lun, uint64_t lba, uint32_t blocks, void *dst)
 {
     struct utp_transfer_req_desc *utrd =
         (struct utp_transfer_req_desc *)ufs_list_phys;
@@ -196,7 +198,7 @@ static int ufs_read(uint64_t lba, uint32_t blocks, void *dst)
         upiu = ucd->command_upiu;
         upiu[0] = UPIU_TRANSACTION_COMMAND;
         upiu[1] = UPIU_CMD_FLAGS_READ;
-        upiu[2] = 0;
+        upiu[2] = (uint8_t)(lun & 0x3fu);   /* UPIU COMMAND byte 2 = LUN, not always 0 */
         upiu[3] = 0;
         upiu[4] = UPIU_COMMAND_SET_SCSI;
         ufs_put_be32(upiu + 12, bytes);
@@ -238,6 +240,12 @@ static int ufs_read(uint64_t lba, uint32_t blocks, void *dst)
         done += n;
     }
     return 1;
+}
+
+/* All GPT/system/payload reads use LUN 2 (the main UFS LUN). */
+static inline int ufs_read(uint64_t lba, uint32_t blocks, void *dst)
+{
+    return ufs_read_lun(UFS_MAIN_LUN, lba, blocks, dst);
 }
 
 #endif
