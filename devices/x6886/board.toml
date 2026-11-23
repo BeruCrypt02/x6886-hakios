@@ -2,14 +2,14 @@ name = "x6886"
 description = "Infinix Hot 60 Pro+ X6886"
 soc = "mt6789"
 
-features = []
+features = ["ufs"]
 
 [loader]
 # Free System RAM from /proc/iomem: 0xc0000000-0xd5ffffff (352 MiB), clear of
 # LK, ATF (0xbfe00000), ramoops (0x48090000), the framebuffer (0xfe0c0000) and
 # the modem reservations. The XNU kernel + its memory window live here.
 xnu_base = 0xC0000000
-xnu_size = 0x14000000
+xnu_size = 0x30000000
 # LK loads the boot image's "kernel" here (/proc/iomem: Kernel code 0x40010000).
 kernel_load = 0x40010000
 chain_stub = 0x40080000
@@ -18,8 +18,8 @@ chain_stub = 0x40080000
 marker = 0x80000000
 panic_log = 0x80100000
 panic_log_size = 0x100000
-scratch = 0x80200000
-test_buffer = 0x80300000
+scratch = 0x80400000
+test_buffer = 0x80700000
 core_order = [0, 6, 7, 1, 2, 3, 4, 5]
 # The partition the loader reads the system image from (carved out of userdata).
 system_partition = "xnusys"

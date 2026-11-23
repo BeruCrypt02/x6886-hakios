@@ -1,6 +1,12 @@
 tools/
 refs/*/
-build/
+build/*
+!build/README.md
+!build/chainboot-x6886.py
+!build/loader/
+build/loader/*
+!build/loader/ufs.h
+!build/loader/mtkloader.c
 out/
 *.img
 *.bin

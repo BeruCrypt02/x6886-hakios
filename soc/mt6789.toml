@@ -15,6 +15,7 @@ cores = 8                           # 8 cpu@ nodes, reg 0x000..0x700
 core_shift = 8                      # MPIDR affinity1 = reg >> 8
 big_cores = [6, 7]                  # 2x Cortex-A76; 0..5 are Cortex-A55
 psci = "smc"                        # /psci method
+debug_core0 = 0x0e010000            # /cpu_dbgapb@0e010000: core 0 debug regs (loader timer probe)
 
 [blocks]
 topckgen = 0x10000000               # /topckgen@10000000
@@ -35,11 +36,14 @@ i2c3 = 0x11015000                   # /i2c@11015000
 i2c5 = 0x11017000                   # /i2c@11017000 (SC8950 0x6b)
 i2c6 = 0x1101a000                   # /i2c@1101a000 (AW87xxx 0x58/0x59)
 spi1 = 0x11010000                   # /spi1@11010000: FocalTech FT3683G touch
+spi2 = 0x11012000                   # /spi2@11012000 (the loader's touch SPI helper expects it)
 spi3 = 0x11013000                   # /spi3@11013000: Goodix optical fingerprint
 ufs = 0x11270000                    # /ufshci@11270000: the root storage
+msdc0 = 0x11230000                  # /mmc@11230000 (msdc.h compiles it even on UFS boards)
 mali = 0x13000000                   # /mali@13000000: Mali-G57 (Valhall r54p1)
 mmsys = 0x14000000                  # /mmsys@14000000 (display subsystem)
 disp_mutex0 = 0x14001000            # /disp_mutex@14001000
+disp_ovl0 = 0x1400b000              # /ovl@1400b000: OVL layer 0, LK's framebuffer
 dsi0 = 0x14013000                   # DSI0, nt37706a panel
 conn = 0x18000000                   # /wifi@18000000 (CONNSYS window)
 conn_mcu = 0x18002000               # /consys@18002000
