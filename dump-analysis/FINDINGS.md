@@ -87,18 +87,37 @@ protocol is the FT3xxx SPI family.
   conditionally writable area; logical B partitions need a DSU-style scoped
   mechanism, not a super rewrite.
 
-## Gaps that need the live device or vendor source
+## The four gaps — after a second dump-only investigation
 
-1. FT3682g vs FT3683g: one live chip-ID register read.
-2. GPU firmware: `mali_kbase` requests `sffw.bin`; no such file in the dump.
-   Need the real name from a live device (`dmesg`/`strace` of the HAL) or from
-   a sibling port.
-3. Sensor orientation matrix: absent from `sensor_config.json`; derive
-   empirically when sensors matter.
-4. Goodix GF3976 register map: TA is encrypted; no usable init sequence.
-5. DSI timing/lane count from the panel blob is decoded, but hardware
-   bring-up still needs the clock/PHY register writes from
-   `clk-mt6789-disp*.ko` and `mediatek_drm_v1`.
+Four subagents re-searched the dump (no port-tools, no refs). Two gaps closed
+from the dump alone, two remain genuinely blocked. Reports: `gap-*.md`.
+
+1. **FT3682g vs FT3683g — CLOSED LOCALLY.** `IC_Type=FT3683G` at
+   `odm/firmware/Conf_MultipleTest.ini:23`, a file the driver itself reads
+   (strings `Conf_MultipleTest.ini` at .ko offset `0x33027`, `IC_Type` at
+   `0x35587`). Live `modules.txt` shows `focaltech_ft3683g` loaded. `FT3682G`
+   has zero matches in odm/odm_dlkm/vendor/vendor_boot/vendor_dlkm; it is a
+   board label only. Treat the touch as FT3683G, FTS SPI-v2 protocol.
+2. **GPU firmware names — CLOSED LOCALLY, blobs still absent.** The driver
+   requests `valhall-1691526.wa` (literal string at .ko offset `0x9245e`) and
+   `mali_csffw.bin` (`sffw.bin` was only its tail). Confirmed by
+   `vendor/etc/selinux/vendor_file_contexts:1208,1261`. The blobs themselves
+   are not in the dump. Need the official firmware package, not a live read.
+3. **Sensor orientation — NEEDS LIVE.** `sensor_config.json` has no mount
+   matrix. `scp.img` (`tinysys-scp-RV55_A`) carries a compiled DTS parser with
+   `direction`/`orientation` keys, so the values exist only as compiled
+   numbers. Need `adb shell dumpsys sensorservice` plus a raw accel vector with
+   the screen up. Do not reuse the orientation values in audio/camera XMLs.
+4. **Goodix FOD — BLOCKED BY DESIGN.** No register map, opcodes or init
+   sequence in `tran_fp.ko`; the kernel is SPI passthrough and matching lives
+   in an encrypted MobiCore TA. Live `modules.txt`: `tran_fp` refcount 2
+   (active), `tran_fp_v2` 0 (inactive, so the GF3976 TA is unused). No open
+   matcher in the dump. Needs the TA key or a live SPI capture.
+
+One further hardware item is decoded but not yet executed: DSI timing and
+lane count come from the panel blob; the clock/PHY register writes still have
+to be taken from `clk-mt6789-disp*.ko` and `mediatek_drm_v1` when the driver
+is written.
 
 ## Recommended first driver (decision, not yet executed)
 
