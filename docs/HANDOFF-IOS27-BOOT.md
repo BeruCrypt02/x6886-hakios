@@ -35,9 +35,9 @@
 | OVL layer 1 | PITCH +0x64, ADDR +0xf60 | patch 0188; layer stride = 0x20 |
 | OVL layer 2/3 | CON +0x70/0x90, PITCH +0x84/0xa4, ADDR +0xf80/0xfa0 | extrapolated from 0x20 stride (NOT directly read) |
 | OVL SRC_SIZE | UNPROVEN — do not rely on it | no local definition |
-| console-ramoops-0 | **`0x480b0000`** size 0x40000 | region 0x48090000+0xe0000, zone order dmesg(0x20000)->console(0x40000)->pmsg(0x80000) |
-| pmsg-ramoops-0 | `0x480f0000` size 0x80000 | same arithmetic |
-| ECC | disabled | no ramoops.ecc= in cmdline |
+| console-ramoops-0 | **`0x480af000`** size 0x40000 | LIVE /sys/module/ramoops/parameters: record_size 0x1000, dmesg 31 records (0x1f000) -> console -> ftrace 0x1000 -> pmsg |
+| pmsg-ramoops-0 | `0x480f0000` size 0x80000 | same live parameters |
+| ECC | disabled | ramoops ecc=0, no ramoops.ecc= in cmdline |
 | XNU DRAM | `0x140000000 + 0x0ff600000` | ends exclusive 0x23f600000, strictly below reserved 0x23f600000-0x23fbfffff |
 | kernel_load | `0x40010000` | /proc/iomem "40010000-... : Kernel code" |
 
@@ -48,7 +48,7 @@ All fixed by Subagent B, commits `0cbb0da` + `dc8976e`, final loader
 
 1. **Stacks below `_start` (the real silent-hang cause).** With `_start=0x40010000` and DRAM from `0x40000000`, the old stacks were `0x40008000` / `0x4000e000` / `0x40000000` (exact DRAM base) — the first push wrote outside RAM. Fixed: four aligned `.bss` stack buffers; BSS cleared before any `mov sp`; all SP writes now `adrp/add` PC-relative. Verified: `primary_stack_top=0x40023000`, `fault=0x40027000`, `watcher=0x4002f000`, all inside `.bss` above `_start`.
 2. **`display_find()` impossible condition** `pitch >= 4320 && pitch <= 4096` (always false) → fell back to wrong 7680. Fixed: scans enabled layers on both OVL0 and OVL0_2L, reads SRC_CON/PITCH/ADDR, upper bound 8192, fallback `0xFE0C0000 / 4352`. Feeds `boot_args.Video`.
-3. **pstore logging wrote to wrong zones.** `RAMOOPS_CONSOLE2=0x4811f000` sat inside pmsg and corrupted `HAKIOS:BOOT-XNU`. Removed. `RAMOOPS_CONSOLE=0x480b0000` (the real console zone), `RAMOOPS_PMSG=0x480f0000`. Framebuffer banner is the primary channel.
+3. **pstore logging wrote to wrong zones.** `RAMOOPS_CONSOLE2=0x4811f000` sat inside pmsg and corrupted `HAKIOS:BOOT-XNU`. Removed. `RAMOOPS_CONSOLE=0x480af000` (the real console zone, shifted 4 KiB down by the non-zero `ftrace_size=0x1000`), `RAMOOPS_PMSG=0x480f0000`. Framebuffer banner is the primary channel.
 4. **UFS LUN 0 hardcode** (4 MB boot LUN) → GPT/super reads failed. `ufs_read()` now uses LUN 2 (`UFS_MAIN_LUN`), selectable LUN.
 5. **Bringup defaults & DRAM window.** `MENU_DEFAULT_XNU=1`, `XNU_VERBOSE=1`, `XNU_ROOT_EMMC=0`, `XNU_WDT_SECONDS=30` (safety; disable with `-DXNU_WDT_SECONDS=0`). XNU window clamped to `0x140000000+0x0ff600000`. Old 768 MB window was overrun by 4 GB APFS.
 6. **3-second on-screen banner + pstore log** before XNU: CurrentEL, real load address, LK dtb, OVL0 src/addr/pitch, XNUP entry, with TOPRGU kick (0x10007000+0x08, key 0x1971) every 250 ms.
@@ -77,7 +77,7 @@ SHA256 eeb2e43bee20278d833d333794b2f6fb43f1d8f735a14d61dfed6da8f4cd64ec
 fastboot -s 153857057T001452 flash boot_a /home/berucrypt00/hakios-x6886/build/boot-x6886-final.img
 ```
 
-Expected: a clean on-screen 3-second banner (no glitch stripes) with CPU/OVL0/XNUP trace, then XNU boots with `-v debug=0x8 serial=3`. If anything fails, the banner and `console-ramoops-0` at 0x480b0000 will say exactly where.
+Expected: a clean on-screen 3-second banner (no glitch stripes) with CPU/OVL0/XNUP trace, then XNU boots with `-v debug=0x8 serial=3`. If anything fails, the banner and `console-ramoops-0` at 0x480af000 will say exactly where.
 
 ## Remaining uncertainty
 

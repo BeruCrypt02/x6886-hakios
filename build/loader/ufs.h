@@ -72,10 +72,24 @@ struct ufs_err {
 };
 static struct ufs_err ufs_last;
 
+/* LK hands us UFSHCI with HCE cleared on MT6789; log the state so the panel says why. */
+static void ufs_dump_state(const char *when)
+{
+    dbg_puts("UFS ");
+    dbg_puts(when);
+    dbg_puts(": CAP ");   dbg_hex(rd32(UFS_BASE + UFSHC_CAP), 8);
+    dbg_puts(" HCE ");    dbg_hex(rd32(UFS_BASE + UFSHC_HCE), 8);
+    dbg_puts(" HCS ");    dbg_hex(rd32(UFS_BASE + UFSHC_HCS), 8);
+    dbg_puts(" IS ");     dbg_hex(rd32(UFS_BASE + UFSHC_IS), 8);
+    dbg_puts(" UTRLRSR "); dbg_hex(rd32(UFS_BASE + UFSHC_UTRLRSR), 8);
+    dbg_puts("\n");
+}
+
 static int ufs_fail(const char *what, uint32_t status)
 {
     ufs_last.what = what;
     ufs_last.status = status;
+    ufs_dump_state(what);
     return 0;
 }
 
@@ -124,11 +138,29 @@ static int ufs_ready(void)
 
 static int ufs_init(uint64_t list_phys)
 {
-    uint32_t db = rd32(UFS_BASE + UFSHC_UTRLDBR);
+    uint32_t db;
 
+    ufs_dump_state("as LK left it");
+    /*
+     * MT6789 LK shuts UFSHCI down (HCE bit0 = 0) before the handoff. The embedded
+     * XNUP payload needs no UFS, so this is a short best-effort attempt only: if
+     * the controller does not answer quickly, ufs_list_phys stays zero and the
+     * caller boots straight from the ramdisk. Never spin here.
+     */
+    {
+        uint32_t cap = rd32(UFS_BASE + UFSHC_CAP);
+
+        if (!(rd32(UFS_BASE + UFSHC_HCE) & 1) && cap && cap != 0xffffffffu) {
+            wr32(UFS_BASE + UFSHC_HCE, 1);
+            for (uint32_t i = 0; i < 200000 && !(rd32(UFS_BASE + UFSHC_HCE) & 1); i++) {
+            }
+            ufs_dump_state("after HCE attempt");
+        }
+    }
     if (!ufs_ready()) {
         return 0;
     }
+    db = rd32(UFS_BASE + UFSHC_UTRLDBR);
     if (db != 0) {
         return ufs_fail("doorbell busy", db);
     }

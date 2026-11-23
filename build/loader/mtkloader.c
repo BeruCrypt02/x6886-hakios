@@ -41,7 +41,10 @@
 #define disk_read(l, n, d)  ufs_read((l), (n), (d))
 #define disk_last           ufs_last
 #define DISK_NAME           "ufs"
+/* ufs_list_phys is set only after a successful handoff; zero means UFS is off. */
+#define DISK_READY          (ufs_list_phys != 0)
 #else
+#define DISK_READY          1
 #define DISK_BLOCK_BYTES    512u
 #define disk_read(l, n, d)  msdc_read((l), (n), (d))
 #define disk_last           msdc_last
@@ -555,6 +558,9 @@ static const struct payload_header *payload_from_flash(void)
 	uint64_t lba, blocks;
 	volatile uint32_t *head = (volatile uint32_t *)sector_buf;
 
+	if (!DISK_READY) {
+		return NULL;    /* UFS off: the payload is embedded in this image instead */
+	}
 	if (!gpt_find(SYSTEM_PART, &lba, &blocks) || blocks * DISK_BLOCK_BYTES < 2 * PAYLOAD_TAIL) {
 		out("payload: no " SYSTEM_PART " partition large enough\n");
 		return NULL;
@@ -693,6 +699,9 @@ static uint8_t gpt_entries[128 * 128] __attribute__((aligned(16)));
 /* The partition's first block and length, by the name in the GPT. */
 static int gpt_find(const char *name, uint64_t *lba, uint64_t *blocks)
 {
+	if (!DISK_READY) {
+		return 0;
+	}
 	if (!disk_read(1, 1, sector_buf)) {
 		return 0;
 	}
@@ -735,6 +744,10 @@ static uint64_t load_system_image(void)
 {
 	uint64_t lba, blocks, size = 0, done = 0, t0 = dbg_ticks(), f = dbg_freq();
 
+	if (!DISK_READY) {
+		out("UFS off: no external system image, booting the embedded ramdisk\n");
+		return 0;
+	}
 	if (!gpt_find(SYSTEM_PART, &lba, &blocks)) {
 		out("no " SYSTEM_PART " partition on the flash (or the GPT could not be read)\n");
 		return 0;
@@ -1120,8 +1133,23 @@ static void __attribute__((noreturn)) chain_android(void)
 	uint64_t image_size = (hdr[5] + 7) & ~7ULL; /* Image header 0x28 (res3): Android Image length */
 
 	marker_set(0);
+	/* If chainboot's res3 was zero, the Android Image header at CHAIN_OFFSET
+	 * carries the same length at +0x10. Do not fail just because res3 was lost. */
+	if (image_size == 0) {
+		uint64_t in_hdr = (uint64_t)img[4] | ((uint64_t)img[5] << 32);
+
+		if (in_hdr >= 0x1000 && in_hdr < (1ULL << 32)) {
+			image_size = (in_hdr + 7) & ~7ULL;
+		}
+	}
 	if (image_size == 0 || img[14] != 0x644d5241u) { /* "ARM\x64" */
 		out("no Android kernel in this image: reset\n");
+		out("_start "); out_hex((uint64_t)_start);
+		out(" CHAIN_OFFSET "); out_hex(CHAIN_OFFSET);
+		out(" res3 "); out_hex(hdr[5]);
+		out(" hdr_size "); out_hex((uint64_t)img[4] | ((uint64_t)img[5] << 32));
+		out(" magic "); out_hex(img[14]);
+		out("\n");
 		dbg_delay_ms(3000);
 		reset_board();
 	}
@@ -2467,7 +2495,7 @@ static void __attribute__((noreturn)) run_xnu(void)
 		memcpy((void *)rd_pa, pi.ramdisk, pi.ramdisk_size);
 	}
 	/* and the big one off the flash, if it is there (with XNU_ROOT_EMMC the kernel reads it itself) */
-	uint64_t sys_size = XNU_ROOT_EMMC ? 0 : load_system_image();
+	uint64_t sys_size = (XNU_ROOT_EMMC || !DISK_READY) ? 0 : load_system_image();
 	uint64_t sys_pa = sys_size ? SYSTEM_PA : 0;
 	uint64_t sys_span = (sys_size + PAGE_SIZE_MAX - 1) & ~(PAGE_SIZE_MAX - 1);
 
@@ -3225,6 +3253,11 @@ static int boot_choice(void)
 	}
 	fbc.scale = 1;
 	fbc.fg = 0xffffffffu;
+	/* The banner was drawn at scale 3 on row 640. Leaving the cursor there made
+	 * the next newline draw a rule straight through the green text. Start the
+	 * normal-scale log below the banner. */
+	fbc.x = 0;
+	fbc.y = 760;
 	dbg_delay_ms(1000);
 	return xnu;
 }
@@ -3658,12 +3691,15 @@ void mtkloader_main(uint64_t dtb)
 	 * (+128 MB) and the payload stage, clear of LK, ATF and the framebuffer. */
 	out("UFS init: ");
 	if (!ufs_init(XNU_PHYS_BASE + 0x04000000ULL)) {
+		/* LK powers UFSHCI down before handoff on MT6789. The XNUP payload is
+		 * embedded in this image, so keep going: chaining Android here is what
+		 * produced "No Android Kernel in this image: reset" on the phone. */
+		out("disabled (");
 		out(ufs_last.what);
-		out("\n");
-		dbg_delay_ms(4000);
-		chain_android();
+		out(") - booting embedded XNUP ramdisk\n");
+	} else {
+		out("ok\n");
 	}
-	out("ok\n");
 #endif
 	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
 	fbc.x = 0;

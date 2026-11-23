@@ -25,12 +25,12 @@ core_order = [0, 6, 7, 1, 2, 3, 4, 5]
 system_partition = "xnusys"
 
 [ramoops]
-# Proved from the cmdline + fs/pstore/ram.c zone order (dmesg -> console -> ftrace
-# -> pmsg) in 0xe0000 @ 0x48090000: dmesg 0x20000, console 0x40000 at 0x480b0000,
-# pmsg 0x80000 at 0x480f0000, ending exactly at 0x48170000. ECC is off. The old
-# values put console at the region base (dmesg) and pmsg inside the console zone,
-# which is why 30 flashes produced no log. Framebuffer banner stays primary.
-console = 0x480b0000
+# Proved from LIVE /sys/module/ramoops/parameters: mem 0x48090000/0xe0000,
+# record_size 0x1000, console_size 0x40000, ftrace_size 0x1000 (non-zero default),
+# pmsg_size 0x80000, ecc=0. Zone order dmesg (31 records, 0x1f000) -> console ->
+# ftrace -> pmsg: console is 0x480af000, NOT 0x480b0000 (the missing 4 KiB is
+# ftrace). pmsg stays 0x480f0000. Framebuffer banner is still the primary log.
+console = 0x480af000
 console_size = 0x40000
 pmsg = 0x480f0000
 pmsg_size = 0x80000

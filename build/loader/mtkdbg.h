@@ -3,8 +3,9 @@
  *
  *  - plog_*: the ramoops console zone that Android's pstore keeps across a warm reset. What is
  *    written here shows up after the next Android boot as /sys/fs/pstore/console-ramoops-0.
- *    Zone layout from Android's ramoops: dump records first, then console, ftrace, pmsg (the
- *    board file's [ramoops]). Header: sig "DBGC", start (next write), size.
+ *    LIVE parameters: 0xe0000 @ 0x48090000, record 0x1000, console 0x40000, ftrace 0x1000,
+ *    pmsg 0x80000. Zone order dmesg (31 records -> 0x1f000), console at 0x480af000, ftrace,
+ *    pmsg at 0x480f0000. Header: sig "DBGC", start (next write), size.
  *  - fbcon_*: text on the panel. The panel is video mode: OVL0 layer 0
  *    scans LK's framebuffer continuously, so pixels written there appear on the next frame.
  *    OVL0 has per-pixel alpha enabled (LK sets aen=1), so every pixel needs alpha 0xff.
