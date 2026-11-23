@@ -1,20 +1,43 @@
 /dts-v1/;
 
-// mt6789. Started by tools/boards.py new from x6886-base.dts.
-// What every board with this SoC shares: where its blocks are (Documentation/porting.md).
+// MediaTek MT6789V/T (Helio G200). The platform values below were checked
+// against the live FDT of serial 153857057T001452, not only the stock dump.
+// See device-dump/HARDWARE-IDENTITY.md for the evidence.
+
 / {
 	name = "mt6789";
 	description = "mt6789";
 
-	// What the loader (arch/arm64/boot/) tells the kernel of the machine, for boards with a loader { } section.
 	platform {
-		// io-base = <0x00400000>;      // TO FILL IN for loader { }: one window over the SoC's peripherals, never 0
-		// io-size = <0x3fc00000>;      // (these two are what the Snapdragon 7-series ports use)
-		psci = "smc";                   // the psci node's method: "smc" or "hvc"
-		gic-dist = <0x0c000000>;        // the arm,gic-v3 node's reg: its first entry
-		gic-redist = <0x0c040000>;      // ... its second
-		cores = <8>;                    // the cpu@ nodes
-		core-shift = <8>;               // where the core's number is in its reg: 8 for 0x000, 0x100 ..., 0 for 0, 1 ...
-		small-cores = <0x3f>;           // optional: a bit for each core of the lowest capacity-dmips-mhz
+		psci = "smc";                   // CPUs carry enable-method = "psci"
+		gic-dist = <0x0c000000>;        // arm,gic-v3 reg entry 0
+		gic-redist = <0x0c040000>;      // ... entry 1
+		cores = <8>;                    // eight cpu@ nodes, reg 0x000..0x700
+		core-shift = <8>;               // index in reg is at bits 8..15
+		small-cores = <0x3f>;           // six A55 (bits 0..5); two A76 are bits 6..7
+	};
+
+	// Verified peripheral addresses from the live FDT. Documentation nodes:
+	// the board checker does not read them until a driver claims the block.
+	peripherals {
+		gpio-base = <0x10005000>;       // pinctrl, 188 pins
+		systimer-base = <0x10017000>;   // mediatek,mt6789-timer
+		uart0-base = <0x11002000>;
+		ufshci-base = <0x11270000>;     // mediatek,mt8183-ufshci
+		pwrap-base = <0x10026000>;      // PMIC wrapper, MT6366
+		consys-base = <0x18002000>;     // CONNSYS_MT6789
+		mmsys-base = <0x14000000>;
+		dsi0-base = <0x14013000>;
+		gpu-base = <0x13000000>;        // Mali-G57, arm,mali-valhall
+	};
+
+	// Serial engines. Touch and fingerprint sit on different ones.
+	spi-engines {
+		spi0 = <0x1100a000>;
+		spi1 = <0x11010000>;            // focaltech ft3682g touch
+		spi2 = <0x11012000>;
+		spi3 = <0x11013000>;            // goodix optical fingerprint
+		spi4 = <0x11018000>;
+		spi5 = <0x11019000>;
 	};
 };

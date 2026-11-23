@@ -1,17 +1,79 @@
 /dts-v1/;
 
-// Infinix Hot 60 Pro+ X6886. Started by tools/boards.py new from x6886-base.dts.
-// Every value here is to be checked against the device before it is relied on (Documentation/porting.md).
+// Infinix Hot 60 Pro+ X6886. Values below come from the live FDT of serial
+// 153857057T001452 and the Device Info HW+ PDF, recorded in
+// device-dump/HARDWARE-IDENTITY.md. Nothing here starts a driver: features
+// stays empty until a driver has been seen to work on this board.
+
 / {
-	name = "x6886";                         // what the loader puts in /chosen/darwin-board
+	name = "x6886";
 	description = "Infinix Hot 60 Pro+ X6886";
 	soc = "mt6789";
 
-	// Nothing yet: a feature is listed once its driver has been seen to work on this board
-	// (Documentation/porting.md goes through them in the order to try).
 	features = <>;
 
+	// The panel is video-mode, so software dimming is the safe first choice.
+	// A DCS backlight needs the nt37706a DSI init sequence and the display
+	// clocks, neither of which is in the stock FDT. Switch to "dcs" only after
+	// the panel driver sends DCS 0x51 and the slider is seen to move it.
 	backlight {
 		type = "soft";
+	};
+
+	// Verified wiring, kept here so the bring-up of each driver has one place
+	// to read. These are documentation nodes; the board checker ignores them
+	// until a matching feature and driver exist.
+
+	panel-nt37706a {
+		// /soc/dispsys@14000000 ... panel1@0 of the live FDT
+		compatible = "nt37706a,fhdp,dsi,vdo,dsc,boe,boe,144hz,x6886";
+		vendor = "BOE";
+		width = <1080>;
+		height = <2400>;
+		refresh-hz = <144>;
+		dsi-video-mode;
+		dsc-enabled;
+		// panel2@0 (vtdr6126a, TM) is the alternate supplier, not this board.
+	};
+
+	touch-ft3682g {
+		// /soc/spi1@11010000/touch@0 (FocalTech FTS)
+		compatible = "focaltech,fts";
+		spi-engine = <0x11010000>;       // spi1
+		spi-max-hz = <8000000>;          // 0x7a1200
+		interrupt-gpio = <0x0c>;
+		reset-gpio = <0x74>;
+		iovdd-gpio = <0x0f>;
+		avdd-gpio = <0x96>;
+		coordinate-max-x = <17279>;      // 0x437f raw, maps to 1080 display
+		coordinate-max-y = <38400>;      // 0x95ff raw, maps to 2400 display
+		max-touches = <10>;
+		firmware = "focaltech_ts_fw.bin";
+	};
+
+	fingerprint-goodix {
+		// /soc/spi3@11013000/fingerprint@0 (Transsion wrapper, Goodix silicon)
+		compatible = "tran_fp_legacy";
+		spi-engine = <0x11013000>;       // spi3, separate from touch
+		spi-max-hz = <27000000>;         // 0x19bfcc0
+		interrupt-gpio = <0x0d>;
+		reset-gpio = <0x77>;
+		power-gpio = <0x3b>;
+		fod-center-x = <540>;
+		fod-center-y = <2210>;
+		vendor = "goodix";
+	};
+
+	gpio-controller {
+		// /soc/pinctrl@10005000, phandle 0x49 of the live FDT
+		base = <0x10005000>;
+		pins = <188>;                    // gpio-ranges <... 0xbc>
+	};
+
+	display-controller {
+		// MediaTek display subsystem in the live FDT
+		mmsys-base = <0x14000000>;
+		dsi0-base = <0x14013000>;
+		dsc-base = <0x14012000>;
 	};
 };

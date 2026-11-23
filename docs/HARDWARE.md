@@ -1,6 +1,10 @@
-# X6886 hardware from the dump
+# X6886 hardware
 
-Source: `vendor_boot/dtb` and `images/dtbo.img` in `/home/berucrypt00/otadump`. MediaTek wraps the FDT with a 64-byte header, so strip 64 bytes before `dtc`. Decompiled trees are in `board/x6886-base.dts` and `board/x6886-overlays.dts`.
+Two sources, both decompiled with `dtc`:
+- Stock dump: `vendor_boot/dtb` and `images/dtbo.img` in `/home/berucrypt00/otadump`. MediaTek wraps the FDT with a 64-byte header, so strip 64 bytes before `dtc`. Decompiled trees are in `board/x6886-base.dts` and `board/x6886-overlays.dts`.
+- Live device: `/sys/firmware/fdt` from serial `153857057T001452`, decompiled to `device-dump/fdt.dts`, plus the Device Info HW+ PDF in `device-dump/X6886-specs.txt`. The verified hardware identity is recorded in `device-dump/HARDWARE-IDENTITY.md`.
+
+Where the two disagree, the live FDT wins because it has the overlays applied.
 
 ## SoC and boot
 
@@ -28,9 +32,15 @@ Source: `vendor_boot/dtb` and `images/dtbo.img` in `/home/berucrypt00/otadump`. 
 
 ## Touch
 
-- Two suppliers: FocalTech `ft3682g` and ChipSemi `chct5560`.
-- FocalTech node `touch@0`: IRQ GPIO `0x0c`, reset GPIO `0x74`, IOVDD GPIO `0x0f`, AVDD GPIO `0x96`.
-- Display coordinates: `0x437f` x `0x95ff` raw touch units.
+- Two suppliers: FocalTech `ft3682g` and ChipSemi `chct5560`. The live FDT's `touch,lcm_name` selects the BOE panel and therefore the FocalTech touch controller.
+- FocalTech node `touch@0` lives under `spi1@11010000`, not I2C: IRQ GPIO `0x0c`, reset GPIO `0x74`, IOVDD GPIO `0x0f`, AVDD GPIO `0x96`, 8 MHz.
+- Display coordinates: `0x437f` x `0x95ff` raw touch units (17279 x 38400), mapped to 1080x2400.
+
+## Fingerprint
+
+- The spec PDF's `tran_keys` is a Transsion name; the live FDT node `fingerprint@0` under `spi3@11013000` carries `compatible = "tran_fp_legacy"` with a `goodix` flag and alias `goodix_fp = "/soc/fingerprint"`. The silicon is Goodix, not Silead and not the FocalTech touch chip.
+- SPI 27 MHz (`0x19bfcc0`), IRQ GPIO `0x0d`, reset GPIO `0x77`, power GPIO `0x3b`, FOD centre `540,2210`.
+- Goodix register map and init are not in the stock FDT. Need a datasheet, firmware blob from otadump, or a logic capture before writing a driver.
 
 ## GPU
 
