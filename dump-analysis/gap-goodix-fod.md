@@ -13,7 +13,7 @@ Legend: **[V]** = verified from the named dump file. **[I]** = inference/interpr
 
 ## 0. Verdict (up front)
 
-1. **No Goodix register map, SPI opcode table, or sensor init sequence exists anywhere in this dump.** The kernel driver is a transparent SPI pipe; every capture/init/algorithm command is constructed inside the encrypted MobiCore TA. This is now verified three ways: exhaustive `strings -a -t x -n 3` on both `.ko` files, `modinfo`/`readelf -s` symbol inventory, and a mechanical decode of every immediate constant in the Goodix SPI + chip-ID functions.
+1. **No Goodix (GF39xx) register map, SPI opcode table, or sensor init sequence exists in this dump.** The kernel driver is a transparent SPI pipe. Verified three ways: exhaustive `strings -a -t x -n 3` on both `.ko` files, `modinfo`/`readelf -s` symbol inventory, and a mechanical decode of every immediate constant in the Goodix SPI + chip-ID functions. **Important qualification (§4b):** one TEE trustlet is *partially* plaintext and does reveal a concrete register-write/delay sequence — but for **JV0307 (Focaltech)**, not for Goodix. The Goodix branch there is only a named `tran_read_goodix_chipid` handler; its bytes remain unrecovered.
 2. **Vendor is Goodix; the most likely part is GF3976, but the exact SKU is still not provable statically.** The live stack is the `tran_fp.ko` / `/dev/goodix_fp` / `gf_fingerprint.default.so` path using the **generic ODM TA** (`05060000….tabin`). The chip-specific GF3976 TA in `/vendor/app/mcRegistry` belongs to the **inactive** `tran_fp_v2` stack.
 3. **No portable matcher path exists locally.** No libfprint, BOZORTH3, Goodix algorithm source, or any open-source fingerprint matcher exists in the dump. Matching is 100% inside the TEE.
 4. **Genuinely impossible without TA decryption or a live SPI capture:** command/opcode bytes, register addresses, init/power-on programming sequence, image preprocessing, matcher algorithm, template format, and template keys. See §7 for the precise boundary, including what is *not* impossible (numeric ioctl layouts are recoverable with a proper aarch64 disassembler — not attempted here because the host has no such tool).
@@ -166,6 +166,61 @@ TEEC_InitializeContext / OpenSession / InvokeCommand / AllocateSharedMemory / �
 
 ---
 
+## 4b. TEE-side trustlets — partially readable, closes part of the gap (VERIFIED)
+
+The dump-wide binary grep surfaced two mcRegistry files that were not in the first pass. They change the picture: the kernel is **not** the only SPI path — the secure world has its own SPI driver and chip-ID trustlet.
+
+**[V] `vendor/etc/init/trustonic.rc`** — MobiCore daemon `mcDriverDaemon` command file, with an explicit t-Drv name map:
+```
+-r /vendor/app/mcRegistry/05070000000000000000000000000000.drbin     ...
+# t-Drv naming
+# 05070000000000000000000000000000.drbin : goodix_fp
+# 030b0000000000000000000000000000.drbin : spi
+# 050d0000000000000000000000000000.drbin : drspi_fp
+```
+Of the ~28 `*.drbin` files referenced, only 6 are actually present in the dump (`020f…`, `051200…0001`, `050700…`, `50201701…`, `050d…`, `072100…`). The generic TEE SPI driver `030b…drbin` is **missing**, so the secure-world SPI implementation is only partially recoverable.
+
+**[V] `vendor/app/mcRegistry/05090000000000000000000000000000.tabin`** (23,051 B, MCLF) — `tran_little_ta: Build %s %s` (18:04:47, Oct 2 2026). Unlike the large encrypted TAs, its strings are **plaintext**, including named handlers and a concrete op sequence:
+```
+CMD_TRAN_READ_CHIPID enter!!!
+tran_read_chipid / tran_read_goodix_chipid / tran_read_silead_chipid /
+tran_read_fpc_chipid / tran_read_focaltech_chipid
+tran_spi_write / tran_spi_read / drSpiSend / spi_read_image
+tran_fp goodix IC name is GF3976 / GF3656 / GF3986 / GW9578 / GW9598
+tran_fp fpc IC name is fpc1561 ; GSL IC name is GSL6195 / GSL7002
+[tran_spi][%s] chip ID read successfully: 0x%08X
+[tran_spi][%s] pcfg->addr = %04x ,pcfg->val= %04x, rxbuf = %04x
+```
+It contains one **explicit register-level sequence**, but only for `jv0307` (CTFJV0307 / Focaltech):
+```
+fail to write 0x08
+wait 5ms
+fail to write 0x13 0xfd 0x00 0xc9
+fail to write 0x13 0x20 0x00 0x9a
+wait 3ms
+fail to write 0x13 0x6f 0x%x 0x%x
+fail to write/read 0x15 0x02 0xcf
+fail to write/read 0x15 0x03 0xc8
+fail to write/read 0x15 0x04 0xdd
+fail to write/read 0x15 0x05 0xda
+sensor_chip_id:%x, value.a:%x
+```
+**[I]** This is a real write-with-delay init/chip-ID sequence at the TEE level. It is the first concrete register/opcode evidence in the whole investigation — but it is vendor-specific to JV0307 (matching the kernel string `jv0307 call, sensor_chip_id:%x, is not 0x46544301`). **No equivalent byte sequence exists for GF3976/GF3956/GF3986** — the Goodix handler is named but its bytes are not exposed in plaintext.
+
+**[V] `vendor/app/mcRegistry/050d0000000000000000000000000000.drbin`** — `[SPI][<t Driver Drspi] %d.%d, Build Oct 2 2026, 18:04:21`, a **secure-world SPI driver**. Plaintext strings name MediaTek SPI controller registers (not sensor registers):
+```
+SPI_REG_CFG0 / CFG1 / CFG2 / TX_SRC / RX_DST / TX_SRC_64 / RX_DST_64 / CMD / PAD_SEL
+SpiMapRegister / drApiMapPhysicalBuffer / spi base addr: 0x%0x
+Setup packet length, header_len, packet_size, packet_loop
+CMD_SPI_DRV_SEND / FID_DR_SPI_INIT / FID_DR_EXECUTE / FID_DR_GETONEIMG_EXECUTE
+spi_read_image / spi_transfer timeout / wait IRQ handle finish
+```
+**[I]** Matching/enrolment is still entirely inside the encrypted large TAs; this driver only moves bytes. It does provide the TEE-side register names for the MT6789 SPI block, which is useful for an XNU port of the transport, but it contains no Goodix sensor command bytes.
+
+**[V] `odm/bin/fhpd`** (51,872 B, stripped ARM64 PIE) is a userspace FHP (fingerprint/palm/touch) status daemon, not a sensor driver: `FHP Status:`, `FOD Status : %u`, `ioctl(FHP_INPUT_IOCTL_REPORT_FOD/PALM/TOUCH/GET_CFG/SET_ALGO_VERSION)`. No sensor commands.
+
+---
+
 ## 5. Portable matcher availability — VERIFIED
 
 Recursive filename search over the complete dump for `*fprint*`, `*bozorth*`, `*finger*print*`, `*goodix*`, `*gf*_fp*` returned only Android/Transsion artefacts:
@@ -198,8 +253,8 @@ tran: 335  (unrelated Transsion drivers)
 ## 7. What remains genuinely impossible (precise boundary)
 
 **Impossible with only this dump — requires the TA decrypt key or a live capture:**
-1. **Command/opcode table** — the actual bytes the sensor accepts (init, sleep/wake, capture, read-image, FIFO/read-raw, CRC/config download). Constructed inside the TA and passed to `spi_sync()` via TEEC shared memory; never in the kernel or HAL.
-2. **Register addresses** — no `0x80xx`-style Goodix register map appears in any string, symbol, header, or mechanically decoded immediate. Any external "typical Goodix GF3xxx command set" would be **general knowledge, not evidence from this dump**; none is asserted here.
+1. **Goodix command/opcode table** — the actual bytes a GF39xx sensor accepts (init, capture, read-image, CRC/config download). Constructed inside the encrypted TA. (The one readable sequence in `05090000.tabin` is JV0307-specific, §4b.)
+2. **Goodix register addresses** — no `0x80xx`-style Goodix register map appears in any string, symbol, header, or decoded immediate. `050d0000.drbin` names only the **MT6789 SPI controller** registers (`SPI_REG_CFG0…CMD/PAD_SEL`), not sensor registers; `05090000.tabin` exposes register writes only for JV0307 (`0x08`, `0x13 …`, `0x15 …`). Any external "typical Goodix GF3xxx command set" would be **general knowledge, not evidence from this dump**; none is asserted here.
 3. **Power-on / init sequence** — GPIO power/reset timing and clock gating exist as *symbol names* (`tran_fp_power_onoff`, `tran_fp_reset_sensor`, `mt_spi_enable_master_clk`), but the register writes that configure the sensor are in the TA.
 4. **Capture parameters** — exposure, gain, HBM timing values, image dimensions/format handed to the algorithm.
 5. **Matcher + template format** — enrolment/matching algorithm, feature representation, template encryption, and the keys protecting `/mnt/vendor/persist/fpdata/` and `/data/vendor/goodix/gf_data`. Existing enrolled fingerprints cannot be migrated to XNU.
@@ -228,7 +283,12 @@ tran: 335  (unrelated Transsion drivers)
 /home/berucrypt00/otadump/vendor/app/mcRegistry/05067002000000000000000000000000.tabin   (GSL7002)
 /home/berucrypt00/otadump/vendor/app/mcRegistry/05069391000000000000000000000000.tabin   (FT9391)
 /home/berucrypt00/otadump/vendor/app/mcRegistry/05069399000000000000000000000000.tabin   (FT9399)
-/home/berucrypt00/otadump/vendor/app/mcRegistry/05070000000000000000000000000000.drbin    (DrTranssionUtils)
+/home/berucrypt00/otadump/vendor/app/mcRegistry/05070000000000000000000000000000.drbin    (goodix_fp per trustonic.rc)
+/home/berucrypt00/otadump/vendor/app/mcRegistry/05090000000000000000000000000000.tabin    (tran_little_ta: CMD_TRAN_READ_CHIPID, JV0307 writes)
+/home/berucrypt00/otadump/vendor/app/mcRegistry/050d0000000000000000000000000000.drbin    (drspi_fp: secure-world SPI driver)
+/home/berucrypt00/otadump/vendor/etc/init/trustonic.rc  (t-Drv name map: 05070000=goodix_fp, 050d0000=drspi_fp, 030b0000=spi)
+/home/berucrypt00/otadump/odm/bin/fhpd              (FHP status daemon, no sensor commands)
+/home/berucrypt00/otadump/vendor/bin/factory         (factory AT+ test harness, no sensor opcodes)
 /home/berucrypt00/otadump/odm/lib64/libgf_hal.so
 /home/berucrypt00/otadump/odm/lib64/hw/gf_fingerprint.default.so
 /home/berucrypt00/otadump/vendor/lib64/libtran_hal.so
