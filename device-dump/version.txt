@@ -1,0 +1,1 @@
+Linux version 6.12.38-android16-Nyanmaru (kleaf@build-host) (Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1, LLD 19.0.1) #1 SMP PREEMPT Thu Nov 12 03:26:08 UTC 2026

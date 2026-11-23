@@ -1,0 +1,5 @@
+/sys/class/input/event0/device/name: mtk-pmic-keys
+/sys/class/input/event1/device/name: mtk-kpd
+/sys/class/input/event2/device/name: tran-keys
+/sys/class/input/event3/device/name: mt6789-mt6366 Headset Jack
+/sys/class/input/event4/device/name: mtk-tpd

@@ -53,6 +53,18 @@ i.e. `focaltech_ft3683g.ko`'s `focaltech_test_ini.c` path parses `IC_Type` from
 "no FTS .ini test config in the dump" — that was wrong; the file is present at
 `odm/firmware/Conf_MultipleTest.ini`.
 
+An exhaustive case-insensitive `grep -r -a` for `IC_Type|Conf_MultipleTest|FT3683G|FT3682G`
+across `odm/`, `odm_dlkm/`, `vendor/`, `vendor_boot/` and `vendor_dlkm/` returns exactly two
+relevant hits and nothing else:
+
+```
+odm/firmware/Conf_MultipleTest.ini:23:IC_Type=FT3683G
+odm_dlkm/lib/modules/focaltech_ft3683g.ko:2209:Conf_MultipleTest.ini  short_get_adcdata_incell ...
+```
+
+`FT3682G` matches **zero** files. (The remaining raw hits are substring noise inside large
+Mali/camera/audio/Clang `.so` string tables, unrelated to touch.)
+
 ### 1.2 Live-device `modules.txt` proves the FT3683G driver is actually loaded
 
 `/home/berucrypt00/hakios-x6886/device-dump/modules.txt` (pulled from the phone, 2026-11-23):
