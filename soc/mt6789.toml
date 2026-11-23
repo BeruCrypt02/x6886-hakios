@@ -1,0 +1,45 @@
+# MediaTek Helio G200 / G99 (MT6789V/T). What every board with this chip shares:
+# where its blocks are. Every address is from the live FDT of serial 153857057T001452
+# (device-dump/fdt.dts) or the stock dump, recorded in device-dump/HARDWARE-IDENTITY.md.
+# See refs/oosexgang-xnu27/soc/mt6768.toml for the meaning of each key.
+name = "mt6789"
+description = "MediaTek Helio G200 (MT6789)"
+
+[platform]
+io_base = 0x0c000000                # GIC distributor, start of the peripheral window
+io_size = 0x14000000                # covers display/camera up to 0x20000000
+gic_dist = 0x0c000000               # /interrupt-controller (arm,gic-v3) reg[0]
+gic_redist = 0x0c040000             # ... reg[1]
+uart0 = 0x11002000                  # /serial@11002000, the console LK hands over
+cores = 8                           # 8 cpu@ nodes, reg 0x000..0x700
+core_shift = 8                      # MPIDR affinity1 = reg >> 8
+big_cores = [6, 7]                  # 2x Cortex-A76; 0..5 are Cortex-A55
+psci = "smc"                        # /psci method
+
+[blocks]
+topckgen = 0x10000000               # /topckgen@10000000
+infracfg_ao = 0x10001000            # /infracfg_ao@10001000
+gpio = 0x10005000                   # /gpio@10005000 (phandle 0x49, 188 pins)
+spm = 0x10006000                    # /sleep@10006000
+toprgu = 0x10007000                 # watchdog (from sibling MT6789 DTs)
+apmixed = 0x1000c000                # /apmixed@1000c000
+pwrap = 0x10026000                  # /pwrap@10026000 -> MT6366 PMIC
+keypad = 0x10010000                 # /kp@10010000
+scp_sram = 0x10500000               # /scp@10500000 reg[0]
+scp_cfg = 0x105c0000                # ... reg[1]
+scp_clkctrl = 0x105c4000            # ... reg[2]
+btif = 0x1100c000                   # /btif@1100c000
+i2c0 = 0x11e00000                   # /i2c@11e00000 (NFC 0x28)
+i2c2 = 0x11eb0000                   # /i2c@11eb0000
+i2c3 = 0x11015000                   # /i2c@11015000
+i2c5 = 0x11017000                   # /i2c@11017000 (SC8950 0x6b)
+i2c6 = 0x1101a000                   # /i2c@1101a000 (AW87xxx 0x58/0x59)
+spi1 = 0x11010000                   # /spi1@11010000: FocalTech FT3683G touch
+spi3 = 0x11013000                   # /spi3@11013000: Goodix optical fingerprint
+ufs = 0x11270000                    # /ufshci@11270000: the root storage
+mali = 0x13000000                   # /mali@13000000: Mali-G57 (Valhall r54p1)
+mmsys = 0x14000000                  # /mmsys@14000000 (display subsystem)
+disp_mutex0 = 0x14001000            # /disp_mutex@14001000
+dsi0 = 0x14013000                   # DSI0, nt37706a panel
+conn = 0x18000000                   # /wifi@18000000 (CONNSYS window)
+conn_mcu = 0x18002000               # /consys@18002000
