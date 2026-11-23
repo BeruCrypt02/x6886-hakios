@@ -17,6 +17,7 @@
 #include "hw.h"
 #include "loader.h"
 #include "plog.h"
+#include "logview.h"
 #include "splash.h"
 
 #define ERROR_HOLD_MS		5000
@@ -64,7 +65,8 @@ void shim_main(uint64_t dtb)
 	plog_str("loader: ");
 	plog_str(why);
 	plog_str("\n");
-	fb_fill(RED);
+	/* Paint the log on screen so a hang can be read without Android pstore. */
+	logview_show((volatile uint32_t *)FB_BASE, FB_STRIDE / 4, FB_W, FB_H);
 	wait_ms(ERROR_HOLD_MS);
 	plog_str("reset\n");
 	reboot();
@@ -83,7 +85,8 @@ void shim_exception(void)
 		plog_hex("elr_el1", rsr("elr_el1"));
 		plog_hex("far_el1", rsr("far_el1"));
 	}
-	wait_ms(1000);
+	logview_show((volatile uint32_t *)FB_BASE, FB_STRIDE / 4, FB_W, FB_H);
+	wait_ms(ERROR_HOLD_MS);
 	plog_str("reset\n");
 	reboot();
 }

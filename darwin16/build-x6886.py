@@ -19,7 +19,7 @@ CFLAGS = [
     "-Wall", "-Wextra", "-I" + SHIM,
 ]
 SOURCES = ["start.S", "main.c", "plog.c", "hw.c", "display.c", "loader.c",
-           "fdt.c", "splash.c"]
+           "fdt.c", "splash.c", "logview.c"]
 
 def run(cmd):
     print(" ".join(cmd))
