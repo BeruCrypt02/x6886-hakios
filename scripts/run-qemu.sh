@@ -47,12 +47,14 @@ case "$MODE" in
       exit 1
     fi
     : "${SYSTEM_APFS:=$IOS/system27-prune.apfs}"
-    : "${ROOT_APFS:=$IOS/root26-darwin.apfs}"
+    : "${SMALL_APFS:=$IOS/root26-darwin.apfs}"
+    : "${BOOT_APFS:=$IOS/flashboot.apfs}"
     : "${IDENTITY:=$IOS/DeviceTree.bin}"
     exec "$UPSTREAM/tools/qemu-kernel.sh" \
       --window --interactive --cpus 4 \
-      --ramdisk "$ROOT_APFS" --disk "$SYSTEM_APFS" --identity "$IDENTITY" \
-      --boot-args "${IOS_BOOT_ARGS:-rd=md0 gpu=0}" \
+      --ramdisk "$BOOT_APFS" --disk "$SYSTEM_APFS" --identity "$IDENTITY" \
+      --boot-args "${IOS_BOOT_ARGS:-rd=md0 root_apfs=rvblk0 gpu=0}" \
+      --qemu "-drive file=$SMALL_APFS,format=raw,if=none,id=md1 -device virtio-blk-device,drive=md1" \
       "$@" "$KERNEL"
     ;;
   *)
