@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-Put a bare-metal program in front of Android's kernel in a boot image (header v2).
-
-  chainboot.py <android-boot.img> <program.bin> <out.img> [payload.bin]
-
-LK decompresses the kernel to 0x40080000 and enters it there. The new kernel is gzip of:
-program.bin, padded to CHAIN_OFFSET, then Android's own (uncompressed) Image. The program runs
-first and then moves the Image down to 0x40080000 and starts it (mtkloader/fbdiag.c). An optional
-payload (mtkloader's "XNUP") follows the Image, 16-aligned. The program's own arm64 header gets
-the Image's length in res2 (0x28), the payload's offset in res3 (0x30) and a covering image_size.
-Everything else - header fields, cmdline, ramdisk, dtb - is copied from the Android image.
-"""
+"""Place a program in front of Android's kernel in a boot image."""
 import gzip
 import hashlib
 import struct
@@ -31,10 +20,7 @@ def main():
     assert d[:8] == b'ANDROID!', 'not an Android boot image'
     ksize, _, rsize, _, ssize, _, _, page, hver = struct.unpack_from('<9I', d, 8)
     if page == 0:
-        page = 4096          # this dump's header has a zero page size; the board uses 4096
-    # v2 (the first phone) has the ramdisk recovery dtbo at 1632/1648. v4 (X6886)
-    # has an empty ramdisk in boot.img; the real ramdisk+dtb live in vendor_boot.
-    # For both, the boot.img offsets below stay valid; only the extra fields move.
+        page = 4096
     if hver not in (2, 4):
         raise SystemExit(f'header v{hver}, expected 2 or 4')
     if hver == 4:
@@ -57,8 +43,9 @@ def main():
     if kernel[:2] == b'\x1f\x8b':
         image = gzip.decompress(kernel)
     elif kernel[:4] == b'\x02\x21\x4c\x18':
-        # lz4_legacy (X6886): decompress with the lz4 CLI into a temp file.
-        import subprocess, tempfile, os
+        import subprocess
+        import tempfile
+        import os
         fd, tmp = tempfile.mkstemp()
         os.close(fd)
         with open(tmp, 'wb') as f:
@@ -85,7 +72,7 @@ def main():
 
     hdr = bytearray(d[:page])
     struct.pack_into('<I', hdr, 8, len(new_kernel))
-    struct.pack_into('<I', hdr, 36, page)   # X6886 dump had page=0; fix it for LK
+    struct.pack_into('<I', hdr, 36, page)
     sha = hashlib.sha1()
     for part in (new_kernel, ramdisk, second, rdo, dtb):
         sha.update(part)
@@ -93,8 +80,6 @@ def main():
     hdr[576:608] = pad(sha.digest(), 32)
 
     img = bytes(hdr) + pad(new_kernel, page) + pad(ramdisk, page) + pad(second, page) + pad(rdo, page) + pad(dtb, page)
-    # boot_a on the first phone is 32 MB: an image any larger is refused by fastboot, and a script that
-    # sends fastboot's output nowhere would carry on as if it had been flashed
     if len(img) > BOOT_PARTITION:
         raise SystemExit(f'{out}: {len(img)} bytes, more than the {BOOT_PARTITION} of the boot partition '
                          f'({len(img) - BOOT_PARTITION} too many): the payload has to shrink')
