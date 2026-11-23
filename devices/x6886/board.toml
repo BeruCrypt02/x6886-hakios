@@ -10,8 +10,10 @@ features = ["ufs"]
 # the modem reservations. The XNU kernel + its memory window live here.
 xnu_base = 0xC0000000
 xnu_size = 0x30000000
-# LK loads the boot image's "kernel" here (/proc/iomem: Kernel code 0x40010000).
-kernel_load = 0x40010000
+# LK decompresses the boot image's "kernel" here (MMU off, x0 = LK's DTB).
+# 0x40080000 is the address LK uses on MediaTek; /proc/iomem's 0x40010000 is
+# where Linux's own text lands later, not the boot-time load address.
+kernel_load = 0x40080000
 chain_stub = 0x40080000
 # Marker + panic log: DRAM that survives a warm reset. Probed with fbdiag; the
 # values below are the first-boot placeholders, to be confirmed on the device.
