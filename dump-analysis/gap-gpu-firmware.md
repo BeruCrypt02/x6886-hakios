@@ -104,6 +104,9 @@ This is a vendor policy rule with `same_process_hal_file`, i.e. these are real f
 | `/home/berucrypt00/otadump/vendor_boot/ramdisk/` (463 extracted files) | **zero** `*.bin`, **zero** `*.wa`, no `firmware/` directory |
 | `/home/berucrypt00/otadump/images/*.img` scanned with `grep -aob` for `sffw`, `csffw`, `valhall-1691526`, `r54p1` | only `vendor_boot.img` and `vendor_boot-debug.img` (see §4) |
 | **whole-dump** `grep -ril 'sffw' /home/berucrypt00/otadump/` (recursive, binary-as-text) | relevant hits only: `vendor/etc/selinux/vendor_file_contexts`, `vendor_boot/ramdisk/vendor_file_contexts`, `vendor_boot/recovery_ramdisk/vendor_file_contexts`, `vendor_dlkm/lib/modules/mali_kbase_mt6789_a16w_jm.ko`. All other hits (~40) are coincidental byte substrings in APKs, `.git` LFS/pack objects, `.mdla3_0` model files, launcher JSON, zips and unrelated binaries — no GPU firmware file among them. |
+| `grep -inE 'mali_csffw\|valhall-1691526\|csffw' all_files.txt` | **zero** manifest entries — neither name is an OTA payload file |
+| `grep -ral 'mali_csffw.bin'` over `vendor/ vendor_dlkm/ odm/ odm_dlkm/ system/ system_ext/ product/ vendor_boot/` | only the **3** `vendor_file_contexts` copies; no firmware file |
+| `grep -ral 'valhall-1691526.wa'` over the same dirs | the **3** `vendor_file_contexts` copies **+** `vendor_dlkm/lib/modules/mali_kbase_mt6789_a16w_jm.ko`; no firmware file |
 
 Captured live data cross-check: `/home/berucrypt00/hakios-x6886/device-dump/modules.txt` confirms the module is loaded on the device (`mali_kbase_mt6789_a16w_jm 991232 74 - Live ... (OE)`), but `dmesg.txt` is a **late tail starting at `31277.110124`** with **zero** `mali`/`gpu` lines, so it contains no boot-time `request_firmware` failure line. `getprop.txt` only has generic GPU props (`[ro.hardware.vulkan]: [mali]`, etc.).
 
