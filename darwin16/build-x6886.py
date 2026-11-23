@@ -65,15 +65,26 @@ def main():
     if payload_data[:8] != b"SWEETXNU":
         sys.exit("error: payload is not SWEETXNU")
 
-    # pack into boot img v4, kernel = gzip(Image), ramdisk = our payload
-    kernel = gzip.compress(data, 9, mtime=0)
-    ramdisk = payload_data
+    # X6886 has no usable initrd (vendor_boot holds Android's, which we must not touch).
+    # Append the payload to the decompressed kernel blob, right after _end (image_size).
+    # The shim scans from _end with an ADR, so it finds it without any initrd.
+    data += b"\0" * ((-len(data)) % 16)
+    payload_off = len(data)
+    blob = bytearray(data + payload_data)
+
+    # Update the Image header's image_size to cover the whole blob so LK copies it all.
+    struct.pack_into("<Q", blob, 0x10, len(blob))
+    blob = bytes(blob)
+
+    kernel = gzip.compress(blob, 9, mtime=0)
+    ramdisk = b""  # empty: no initrd needed
     boot = boot_img_v4(kernel, ramdisk)
     if len(boot) > BOOT_PARTITION:
         sys.exit(f"error: boot image {len(boot)} bytes > boot_a")
     out = os.path.join(HERE, "boot-x6886-darwin16.img")
     open(out, "wb").write(boot)
-    print(f"Image {len(data)} bytes, payload {len(payload_data)}, boot img {len(boot)} bytes -> {out}")
+    print(f"Image {len(data)} bytes, payload at +{payload_off:#x} ({len(payload_data)}), "
+          f"kernel gz {len(kernel)}, boot img {len(boot)} bytes -> {out}")
 
 def os_version(major, minor, patch, year, month):
     return (major << 14 | minor << 7 | patch) << 11 | (year - 2000) << 4 | month

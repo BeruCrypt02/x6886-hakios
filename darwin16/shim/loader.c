@@ -134,17 +134,35 @@ static uintptr_t find_payload(uint64_t rd_start, uint64_t *rd_end)
 
 typedef void (*xnu_entry_t)(uint64_t boot_args_pa);
 
+extern char _end[];   /* end of the shim Image, from link.ld (PC-relative) */
+
 const char *loader_boot(uintptr_t dtb)
 {
 	uint64_t rd_start, rd_end;
+	uintptr_t base = 0;
 
-	if (!fdt_chosen_u64(dtb, "linux,initrd-start", &rd_start) ||
-	    !fdt_chosen_u64(dtb, "linux,initrd-end", &rd_end))
-		return "no initrd in /chosen";
-	plog_hex("initrd lo", rd_start);
-	plog_hex("initrd hi", rd_end);
+	/* First look in the initrd (/chosen), the way the reference does. */
+	if (fdt_chosen_u64(dtb, "linux,initrd-start", &rd_start) &&
+	    fdt_chosen_u64(dtb, "linux,initrd-end", &rd_end)) {
+		plog_hex("initrd lo", rd_start);
+		plog_hex("initrd hi", rd_end);
+		base = find_payload(rd_start, &rd_end);
+	}
 
-	uintptr_t base = find_payload(rd_start, &rd_end);
+	/* X6886 fallback: our boot.img carries no vendor ramdisk, so the LK DT's
+	 * initrd is Android's. The payload is appended to the kernel blob, right
+	 * after the shim Image. Scan there, PC-relative, no initrd dependency. */
+	if (!base) {
+		uintptr_t img_end;
+		__asm__ volatile("adr %0, _end" : "=r"(img_end));
+		plog_hex("img end", img_end);
+		/* The payload follows _end, padded to 16 bytes. Bound the scan to the
+		 * kernel blob: its header image_size (patched by the builder) covers
+		 * shim + payload, so read that to know how far to look. */
+		uint64_t scan_end = img_end + (24u << 20);
+		base = find_payload(img_end, &scan_end);
+	}
+
 	if (!base)
 		return "no SWEETXNU payload";
 	const struct payload *p = (const struct payload *)base;
