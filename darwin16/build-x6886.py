@@ -10,7 +10,7 @@ LLVM = "/home/berucrypt00/x6886-hakios/tools/root/usr/lib/llvm-20/bin"
 CLANG = os.path.join(LLVM, "clang")
 LD = os.path.join(LLVM, "ld.lld")
 OBJCOPY = os.path.join(LLVM, "llvm-objcopy")
-BOOT_PARTITION = 32 << 20
+BOOT_PARTITION = 64 << 20   # X6886 boot_a is 64 MB (stock boot.img is 67108864 bytes)
 
 CFLAGS = [
     "-target", "aarch64-freestanding-none", "-mcpu=cortex-a55", "-O2",
@@ -81,10 +81,21 @@ def main():
     boot = boot_img_v4(kernel, ramdisk)
     if len(boot) > BOOT_PARTITION:
         sys.exit(f"error: boot image {len(boot)} bytes > boot_a")
+
+    # X6886 boot_a is a fixed 64 MB partition. Stock carries an AVB footer
+    # (AVBf) in the last 64 bytes at 0x3ffffc0. A short image flashed over it
+    # leaves that stale footer behind and LK refuses to boot the mismatched
+    # image. Pad the whole image to 64 MB and copy the stock footer verbatim,
+    # so the partition is complete and LK sees a footer where it expects one.
+    stock = open("/home/berucrypt00/otadump/images/boot.img", "rb").read()
+    footer = stock[0x3ffffc0:0x4000000]  # 64-byte AVBf footer
     out = os.path.join(HERE, "boot-x6886-darwin16.img")
-    open(out, "wb").write(boot)
+    full = bytearray(boot)
+    full += b"\0" * (BOOT_PARTITION - len(full))
+    full[0x3ffffc0:0x4000000] = footer
+    open(out, "wb").write(full)
     print(f"Image {len(data)} bytes, payload at +{payload_off:#x} ({len(payload_data)}), "
-          f"kernel gz {len(kernel)}, boot img {len(boot)} bytes -> {out}")
+          f"kernel gz {len(kernel)}, boot {len(boot)} -> padded {len(full)} bytes -> {out}")
 
 def os_version(major, minor, patch, year, month):
     return (major << 14 | minor << 7 | patch) << 11 | (year - 2000) << 4 | month
