@@ -248,6 +248,32 @@ To locate the exact node on a live device without guessing:
 adb shell 'find /sys -name "fts_rw_reg" -o -name "fts_driver_info" 2>/dev/null'
 ```
 
+**Addendum — reference ports only (NOT used for the dump-only verdict):**
+A completed `grep -r -i "ft368"` over `refs/` finds **no FT3682 or FT3683 anywhere** — only an
+existing **FT3680** FocalTech implementation in `refs/hakios-common/drivers/board/goodix.c`
+(and its copies in `xnu-12377-hakios`, `hakios-mtk`, `hakios-common/Documentation`). That is
+further support for the "one FT3xxx SPI family, one protocol" conclusion: the XNU side already
+has a single generic FocalTech path, not one driver per 368x variant.
+
+That reference also documents the exact FT3xxx ID registers, which answers the "which register?"
+question without guessing:
+
+```c
+#define FOCALTECH_CHIP_ID_H   0xa3
+#define FOCALTECH_CHIP_ID_L   0x9f     /* runtime ID = 0x56 0x62 on FT3680 */
+
+/* boot-ROM ID: write 0xAA to reg 0x55, wait 12 ms, read 2 bytes from reg 0x90 */
+#define FTS_CMD_START1        0x55
+#define FTS_CMD_START2        0xaa
+#define FTS_CMD_READ_BOOT_ID  0x90     /* ROM ID = 0x56 0x62 on FT3680 */
+```
+
+This matches this dump's driver strings exactly in shape (`chip id = 0x%02x%02x`,
+`read boot id:0x%02x%02x`, plus `write FC=0xAA`/`write FC=0x55` from `touch.md` §7.1/§7.2).
+So if a raw register read is ever wanted, the two candidates are **`0xA3`/`0x9F`** (runtime ID)
+and **`0x90`** after `0x55`→`0xAA` + 12 ms (boot ID). Expected values for FT3683G are not in
+any local source — capture and record them, do not assume the FT3680 `0x56 0x62` value applies.
+
 ---
 
 ## 5. Bottom line for the XNU port
