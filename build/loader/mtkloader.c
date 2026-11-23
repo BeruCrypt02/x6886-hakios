@@ -428,41 +428,54 @@ static uint32_t marker_get(void)
 static uint64_t fb_base;
 static uint32_t fb_pitch;
 
-/* 1080 rounded to LK's 32-pixel alignment, times four bytes per pixel. */
+/* Proved from atag,videolfb: 1088 px (1080 rounded to 32) * 4 B = 4352 = 0x1100. */
 #define FB_PITCH_FALLBACK   4352u
 #define FB_PITCH_MAX        8192u
 
 /*
- * Find the framebuffer OVL0 is actually scanning. LK's board values can be stale (the old
- * 0x1e00 = 7680 pitch was a different phone's). Inspect every layer OVL_SRC_CON says is
- * enabled, and take the first whose address is inside LK's framebuffer allocation and
- * whose pitch is a plausible 32-bpp stride for this panel. The old upper bound of 4096
- * was below PANEL_W*4 (4320), so it could never be true and the stale fallback always won.
+ * Find the framebuffer hardware is actually scanning. LK's board values can be stale (the
+ * old 0x1e00 = 7680 was another phone's). Look at both OVL blocks on MT6789, inspect every
+ * layer OVL_SRC_CON says is composed, and take the first whose address is in LK's FB window
+ * and whose pitch is a plausible 32-bpp stride. The old bound (pitch <= 4096) was below
+ * PANEL_W*4 (4320), so it could never be true and the stale fallback always won.
+ * Only SRC_CON/PITCH/ADDR are read: SRC_SIZE offsets are unproven and untouched.
  */
 static void display_find(void)
 {
-	uint32_t src = rd32(OVL0_BASE + OVL_SRC_CON);
+	static const uint64_t ovl_bases[2] = { OVL0_BASE, OVL0_2L_BASE };
+	uint32_t found_base = 0, found_pitch = 0;
 
 	fb_base = LK_FB_BASE;
 	fb_pitch = FB_PITCH_FALLBACK;
-	for (uint32_t layer = 0; layer < OVL_LAYERS; layer++) {
-		uint32_t addr, pitch;
+	for (uint32_t ovl = 0; ovl < 2 && !found_pitch; ovl++) {
+		uint32_t src = rd32(ovl_bases[ovl] + OVL_SRC_CON);
 
-		if (!(src & (1u << layer))) {
-			continue;
+		if (ovl == 0) {
+			out("OVL0 SRC_CON ");
+			out_hex(src);
+			out("\n");
 		}
-		addr = rd32(OVL0_BASE + OVL_LN_ADDR(layer));
-		pitch = rd32(OVL0_BASE + OVL_LN_PITCH(layer)) & 0xffffu;
-		if (addr >= LK_FB_BASE && addr < LK_FB_BASE + LK_FB_SIZE &&
-		    pitch >= PANEL_W * 4 && pitch <= FB_PITCH_MAX) {
-			fb_base = addr;
-			fb_pitch = pitch;
-			break;
+		for (uint32_t layer = 0; layer < OVL_LAYERS; layer++) {
+			uint32_t addr, pitch;
+
+			if (!(src & (1u << layer))) {
+				continue;
+			}
+			addr = rd32(ovl_bases[ovl] + OVL_LN_ADDR(layer));
+			pitch = rd32(ovl_bases[ovl] + OVL_LN_PITCH(layer)) & 0xffffu;
+			if (addr >= LK_FB_BASE && addr < LK_FB_BASE + LK_FB_SIZE &&
+			    pitch >= PANEL_W * 4 && pitch <= FB_PITCH_MAX) {
+				found_base = addr;
+				found_pitch = pitch;
+				break;
+			}
 		}
 	}
-	out("OVL0 SRC_CON ");
-	out_hex(src);
-	out(", fb ");
+	if (found_pitch) {
+		fb_base = found_base;
+		fb_pitch = found_pitch;
+	}
+	out("fb ");
 	out_hex(fb_base);
 	out(" pitch ");
 	out_dec(fb_pitch);

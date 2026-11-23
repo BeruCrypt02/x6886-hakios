@@ -25,11 +25,11 @@ core_order = [0, 6, 7, 1, 2, 3, 4, 5]
 system_partition = "xnusys"
 
 [ramoops]
-# ramoops region is 0xe0000 @ 0x48090000. Linux carves dmesg (0x20000) first, then
-# console (0x40000), then pmsg (0x80000): 0x48090000 + 0x20000 -> 0x480b0000 console,
-# + 0x40000 -> 0x480f0000 pmsg, ending exactly at 0x48170000. The old values pointed
-# console at the region base (dmesg) and pmsg into the console zone. ASSUMPTION: the
-# dmesg/record zone is 0x20000; framebuffer banner is the primary log channel.
+# Proved from the cmdline + fs/pstore/ram.c zone order (dmesg -> console -> ftrace
+# -> pmsg) in 0xe0000 @ 0x48090000: dmesg 0x20000, console 0x40000 at 0x480b0000,
+# pmsg 0x80000 at 0x480f0000, ending exactly at 0x48170000. ECC is off. The old
+# values put console at the region base (dmesg) and pmsg inside the console zone,
+# which is why 30 flashes produced no log. Framebuffer banner stays primary.
 console = 0x480b0000
 console_size = 0x40000
 pmsg = 0x480f0000
@@ -37,9 +37,11 @@ pmsg_size = 0x80000
 
 [display]
 fb_base = 0xfe0c0000
-fb_size = 0x1f30000
-# 1080 rounded up to LK's 32-pixel alignment = 1088 * 4 B = 4352. The stale 7680
-# (1920*4) made the fallback FB unusable; display_find() now reads OVL0's real pitch.
+# Proved from atag,videolfb: 3 buffers of 1088*2400*4 = 0x1de9c00, aligned to
+# 64 KiB -> 0x01df0000 (the atag vram field). The old 0x1f30000 was wrong.
+fb_size = 0x01df0000
+# 1080 rounded to 32 px = 1088 px * 4 B = 4352 (0x1100), proved from the same
+# atag math. The stale 7680 (1920*4) made the fallback unusable.
 fb_pitch = 4352
 width = 1080
 height = 2400

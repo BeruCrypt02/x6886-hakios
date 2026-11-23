@@ -47,12 +47,14 @@
 #define DISP_MUTEX_RUN       (HAKIOS_SOC_DISP_MUTEX0 + 0x24)
 
 #define OVL0_BASE            HAKIOS_SOC_DISP_OVL0
+/* A second OVL block on MT6789 (0x14006000), with its own framebuffer window. */
+#define OVL0_2L_BASE         0x14006000ULL
 #define OVL_SRC_CON          0x02c      /* a bit per layer the hardware composes */
 #define OVL_L0_CON           0x030
 #define OVL_L0_PITCH         0x044
 #define OVL_L0_ADDR          0xf40
-/* MT6789 OVL0 layer register spacing (Subagent A is proving these on the real panel).
- * CON/PITCH advance 0x20 per layer, the layer's buffer address advances 0x20 as well. */
+/* MT6789 OVL layer register spacing, proved from the DTB/DTBO and bare-metal headers:
+ * L1 PITCH +0x64, ADDR +0xf60; the stride is 0x20, so L2/L3 follow at +0x40/+0x60. */
 #define OVL_LAYERS           4u
 #define OVL_LN_CON(n)        (OVL_L0_CON  + (n) * 0x20u)
 #define OVL_LN_PITCH(n)      (OVL_L0_PITCH + (n) * 0x20u)
