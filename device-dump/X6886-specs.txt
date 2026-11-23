@@ -1,0 +1,589 @@
+GENERAL
+
+Manufacturer   INFINIX
+Model          Infinix X6886
+Brand          Infinix
+Resolution     2400x1080
+Platform       mt6789
+Android        16
+API            36
+               6.12.38-android16-5-gb575a0b6e647-ab14355190-4k #1 SMP
+Kernel         PREEMPT Wed Oct 29 06:56:12 UTC 2025
+Accelerometer lsm6dso_acc
+
+Als/ps       mn79911_als
+             mn79911_ps
+Magnetometer qmc6308
+Gyroscope      lsm6dso_gyro
+Lens AF        MAINAF (i2c 2-000c)
+               sc8548-charger (i2c 7-006f)
+Charger        sc8950 (i2c 5-006b)
+NFC            tms,nfc (i2c 0-0028)
+               aw87xxx_pa (i2c 6-0058)
+Audio          aw87xxx_pa (i2c 6-0059)
+Fingerprint    tran_keys
+               unk11 (i2c 6-0011)
+               unk1a (i2c 4-001a)
+               unk1b (i2c 7-001b)
+               unk28 (i2c 3-0028)
+               unk2a (i2c 2-002a)
+Other          unk42 (i2c 3-0042)
+               unk50 (i2c 2-0050)
+               unk51 (i2c 4-0051)
+               unk63 (i2c 6-0063)
+               upm7610 (i2c 3-0060)
+Wi-Fi          CONSYS_MT6789
+Sound          mt6789mt6366
+RAM            8 GB LPDDR4X
+Flash          UFS
+
+SOC
+
+SoC            Helio G200
+CPU            MT6789V/T
+Vendor         MediaTek
+Model          MT6789
+Cores          8
+big.LITTLE     2 clusters
+               2 x 2.20 GHz
+Clusters       6 x 2.00 GHz
+
+Family         Cortex-A76
+               Cortex-A55
+Mode           64-bit
+Machine        aarch64
+ABI            arm64-v8a
+               fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp
+Instructions   asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+Process       6 nm
+technology
+Manufacturing TSMC N6
+
+Revision       r4p0
+               r2p0
+Clock speed    500 - 2200 MHz
+GPU            Mali-G57 MC2
+Vendor         ARM
+OpenGL ES      3.2 v1.r54p1-12eac0.31596c752a7e2ed34e05ad43c82dd58d
+Vulkan         1.3
+
+SYSTEM
+Manufacturer   INFINIX
+Model          Infinix X6886
+Brand          Infinix
+Model name     Infinix HOT 60 Pro+
+Android        16
+API            36
+Codename       Baklava
+Device         Infinix-X6886
+Product        X6886-OP
+Board          Infinix-X6886
+Build          BP2A.250605.031.A3
+Java VM        ART 2.1.0
+Security       2026-10-05
+Baseband       TA16122P3
+GPS            MTK_MNLD_default,MNL_VER_default / 2020
+Bluetooth      5.x
+Build type     user
+Tags           release-keys
+Incremental    301550011
+               Infinix/X6886-OP/Infinix-
+Fingerprint    X6886:16/BP2A.250605.031.A3/301550011:user/release-keys
+Build date     02.10.2026
+Builder        buildsrv-ci@srv14174-1002
+Google Play    26.42.31 (260400-1005867181)
+Services
+Language       English (United States)
+Timezone       Eastern European Standard Time (GMT+02:00)
+Uptime         0 days 16:01
+
+SCREEN
+Resolution                     2400x1080
+Ratio                          20 : 9
+Diagonal                       ~ 6.78 - 6.81" / 172 - 173 mm
+Size                           71 x 157 mm
+Density                        420 (xxhdpi)
+X DPI                          388
+Y DPI                          388
+PPI                            388
+Refresh rate                   120.0 Hz
+                               1080x2400@120.0 Hz
+                               1080x2400@144.0 Hz
+Modes                          1080x2400@90.0 Hz
+                               1080x2400@60.0 Hz
+Wide color gamut               yes
+
+CAMERA
+
+Supported                  32.0 MP GalaxyCore gc32e1x6850_mipi_raw
+                           32.0 MP GalaxyCore gc32e1x6853_mipi_raw
+SOFTWARE
+Camera                     0 - BACK
+Resolution                 12.6 MP (4096x3072)
+Max. resolution            50.0 MP (8160x6120)
+Aperture                   f/1.7
+Focal length               4.71 mm
+Focal length (equivalent
+35 mm)                     24.9 mm
+
+Focus modes                infinity, auto, macro, continuous-video,
+                           continuous-picture
+Sensor size                6.55x4.91
+Diagonal                   8.19 mm
+Pixel size                 ~0.8 (1.6) µm
+Optical format             ~1/1.95" (1/2.2")
+Zoom                       15.0x
+                           RAW_SENSOR, JPEG, YUV_420_888, RAW10, YV12,
+Image formats              HEIC
+                           82.0° (D)
+Angle of view              69.7° (H)
+Crop factor                5.3x
+ISO                        72-6400
+Color filter               RGGB
+Orientation                90
+Flash                      yes
+                           Full HD 1920x1080@30fps
+Video                      HD 1280x720@120fps
+                           HD 1280x720@30fps
+Camera                     1 - FRONT
+Resolution                 13.1 MP (4208x3120)
+Aperture                   f/2.0
+Focal length               2.84 mm
+Focal length (equivalent
+35 mm)                     21.0 mm
+
+Focus modes                infinity
+Sensor size                4.71x3.49
+Diagonal                   5.86 mm
+Pixel size                 ~1.12 µm
+Optical format             ~1/2.73" (1/3.07")
+Zoom                       4.0x
+                           RAW_SENSOR, JPEG, YUV_420_888, RAW10, YV12,
+Image formats              HEIC
+
+Angle of view              91.8° (D)
+                           79.3° (H)
+Crop factor                7.4x
+ISO               100-16000
+Color filter      GRBG
+Orientation       270
+Flash             yes
+
+Video             Full HD 1920x1080@30fps
+                  HD 1280x720@30fps
+Camera2 API       full
+
+BATTERY
+
+Level                             74 %
+Health                            Good
+Status                            Discharging
+Power source                      Battery
+Technology                        Li-ion
+Temperature                       36.8 °C
+Voltage                           4084 mV
+Discharge speed                   543.2 mA
+Power profile                     5160 mAh
+
+THERMAL
+
+soc_max                                     44.0 °C
+cpu_little1                                 43.9 °C
+cpu_little2                                 43.3 °C
+cpu_little3                                 43.1 °C
+cpu_little4                                 43.4 °C
+cpu_big1                                    42.1 °C
+cpu_big2                                    42.6 °C
+cpu_big3                                    42.6 °C
+cpu_big4                                    42.6 °C
+gpu2                                        41.0 °C
+gpu1                                             41.8 °C
+soc1                                             42.6 °C
+soc2                                             42.7 °C
+md                                               41.4 °C
+pmic6366_pmu                                     42.8 °C
+pmic6366_bk1                                     41.6 °C
+pmic6366_bk2                                     41.1 °C
+pmic6366_bk3                                     42.2 °C
+ap_ntc                                           39.9 °C
+ltepa_ntc                                        39.2 °C
+mtk-gauge                                        37.0 °C
+battery                                          36.9 °C
+consys                                           42.0 °C
+
+WI-FI
+
+Connection
+IPv4                 192.168.100.98
+IPv6                 fe80::647e:42ff:fe16:b316
+Link speed           175 Mbps
+Standard             802.11ac
+Frequency            5180 MHz
+Channel              36
+Signal               -74 dBm
+Level                57 %
+Wi-Fi 5 (802.11ac)
+Band 5 GHz           +
+Band 6 GHz           -
+Wi-Fi Direct         +
+WPA3                 +
+INPUT
+
+mtk-kpd
+id: 2 vendor: 0 product: 0
+9a244e01c90550ca2eb2798ffe20d8731e811765
+tran-keys
+id: 3 vendor: 0 product: 0
+eb8013f10249791dc1560438783408f9ca2b7c95
+mtk-pmic-keys
+id: 4 vendor: 1 product: 1
+485d69228e24f5e46da1598745890b214130dbc4
+mt6789-mt6366 Headset Jack
+id: 5 vendor: 0 product: 0
+51b48df63a82026f1e5f8d2da317285e6cf2d6fc
+mtk-tpd
+id: 6 vendor: 0 product: 0 touch: 2401x1081
+84931e976ab60191371c1c95baf408538ca4c4c5
+
+CODECS
+
+c2.android.aac.decoder                        audio/mp4a-latm
+c2.android.amrnb.decoder                      audio/3gpp
+c2.android.amrwb.decoder                      audio/amr-wb
+c2.android.flac.decoder                       audio/flac
+c2.android.g711.alaw.decoder                  audio/g711-alaw
+c2.android.g711.mlaw.decoder                  audio/g711-mlaw
+c2.android.gsm.decoder                        audio/gsm
+c2.android.mp3.decoder                        audio/mpeg
+c2.android.opus.decoder                       audio/opus
+c2.android.raw.decoder                        audio/raw
+c2.android.vorbis.decoder                     audio/vorbis
+c2.mtk.avc.decoder                            video/avc
+c2.mtk.h263.decoder                           video/3gpp
+c2.mtk.heif.decoder                           image/vnd.android.heic
+c2.mtk.hevc.decoder            video/hevc
+c2.mtk.mpeg2.decoder           video/mpeg2
+c2.mtk.mpeg4.decoder           video/mp4v-es
+c2.mtk.vp9.decoder             video/x-vnd.on2.vp9
+c2.mtk.vpx.decoder             video/x-vnd.on2.vp8
+c2.android.apv.decoder         video/apv
+c2.android.av1-dav1d.decoder   video/av01
+c2.android.avc.decoder         video/avc
+c2.android.h263.decoder        video/3gpp
+c2.android.hevc.decoder        video/hevc
+c2.android.mpeg4.decoder       video/mp4v-es
+c2.android.vp8.decoder         video/x-vnd.on2.vp8
+c2.android.vp9.decoder         video/x-vnd.on2.vp9
+c2.android.av1.decoder         video/av01
+OMX.google.aac.decoder         audio/mp4a-latm
+OMX.google.amrnb.decoder       audio/3gpp
+OMX.google.amrwb.decoder       audio/amr-wb
+OMX.google.flac.decoder        audio/flac
+OMX.google.g711.alaw.decoder   audio/g711-alaw
+OMX.google.g711.mlaw.decoder   audio/g711-mlaw
+OMX.google.gsm.decoder         audio/gsm
+OMX.google.mp3.decoder         audio/mpeg
+OMX.google.opus.decoder        audio/opus
+OMX.google.raw.decoder         audio/raw
+OMX.google.vorbis.decoder      audio/vorbis
+OMX.MTK.VIDEO.DECODER.AVC      video/avc
+OMX.MTK.VIDEO.DECODER.H263     video/3gpp
+OMX.MTK.VIDEO.DECODER.HEIF     image/vnd.android.heic
+OMX.MTK.VIDEO.DECODER.HEVC     video/hevc
+OMX.MTK.VIDEO.DECODER.MPEG2    video/mpeg2
+OMX.MTK.VIDEO.DECODER.MPEG4   video/mp4v-es
+OMX.MTK.VIDEO.DECODER.VP9     video/x-vnd.on2.vp9
+OMX.MTK.VIDEO.DECODER.VPX     video/x-vnd.on2.vp8
+OMX.google.h264.decoder       video/avc
+OMX.google.h263.decoder       video/3gpp
+OMX.google.hevc.decoder       video/hevc
+OMX.google.mpeg4.decoder      video/mp4v-es
+OMX.google.vp8.decoder        video/x-vnd.on2.vp8
+OMX.google.vp9.decoder        video/x-vnd.on2.vp9
+c2.android.aac.encoder        audio/mp4a-latm
+c2.android.amrnb.encoder      audio/3gpp
+c2.android.amrwb.encoder      audio/amr-wb
+c2.android.flac.encoder       audio/flac
+c2.android.opus.encoder       audio/opus
+c2.mtk.avc.encoder            video/avc
+c2.mtk.heif.encoder           image/vnd.android.heic
+c2.mtk.hevc.encoder           video/hevc
+c2.android.apv.encoder        video/apv
+c2.android.av1.encoder        video/av01
+c2.android.avc.encoder        video/avc
+c2.android.h263.encoder       video/3gpp
+c2.android.hevc.encoder       video/hevc
+c2.android.mpeg4.encoder      video/mp4v-es
+c2.android.vp8.encoder        video/x-vnd.on2.vp8
+OMX.google.aac.encoder        audio/mp4a-latm
+OMX.google.amrnb.encoder      audio/3gpp
+OMX.google.amrwb.encoder      audio/amr-wb
+OMX.google.flac.encoder       audio/flac
+OMX.MTK.VIDEO.ENCODER.AVC     video/avc
+OMX.MTK.VIDEO.ENCODER.HEIF    image/vnd.android.heic
+OMX.MTK.VIDEO.ENCODER.HEVC            video/hevc
+OMX.google.h264.encoder               video/avc
+OMX.google.h263.encoder               video/3gpp
+OMX.google.mpeg4.encoder              video/mp4v-es
+OMX.google.vp8.encoder                video/x-vnd.on2.vp8
+
+GL EXTENSIONS
+
+GL_EXT_debug_marker
+GL_ARM_rgba8
+GL_ARM_mali_shader_binary
+GL_ARM_debug_assert
+GL_OES_depth24
+GL_OES_depth_texture
+GL_OES_depth_texture_cube_map
+GL_OES_packed_depth_stencil
+GL_OES_rgb8_rgba8
+GL_EXT_read_format_bgra
+GL_OES_compressed_paletted_texture
+GL_OES_compressed_ETC1_RGB8_texture
+GL_OES_standard_derivatives
+GL_OES_EGL_image
+GL_OES_EGL_image_external
+GL_OES_EGL_image_external_essl3
+GL_OES_EGL_sync
+GL_OES_texture_npot
+GL_OES_vertex_half_float
+GL_OES_required_internalformat
+GL_OES_vertex_array_object
+GL_OES_mapbuffer
+GL_EXT_texture_format_BGRA8888
+GL_EXT_texture_rg
+GL_EXT_texture_type_2_10_10_10_REV
+GL_OES_fbo_render_mipmap
+GL_OES_element_index_uint
+GL_EXT_shadow_samplers
+GL_OES_texture_compression_astc
+GL_KHR_texture_compression_astc_ldr
+GL_KHR_texture_compression_astc_hdr
+GL_KHR_texture_compression_astc_sliced_3d
+GL_EXT_texture_compression_astc_decode_mode
+GL_EXT_texture_compression_astc_decode_mode_rgb9e5
+GL_KHR_debug
+GL_EXT_occlusion_query_boolean
+GL_EXT_disjoint_timer_query
+GL_EXT_blend_minmax
+GL_EXT_discard_framebuffer
+GL_OES_get_program_binary
+GL_OES_texture_3D
+GL_EXT_texture_storage
+GL_EXT_multisampled_render_to_texture
+GL_EXT_multisampled_render_to_texture2
+GL_OES_surfaceless_context
+GL_OES_texture_stencil8
+GL_EXT_shader_pixel_local_storage
+GL_ARM_shader_framebuffer_fetch
+GL_ARM_shader_framebuffer_fetch_depth_stencil
+GL_ARM_mali_program_binary
+GL_EXT_sRGB
+GL_EXT_sRGB_write_control
+GL_EXT_texture_sRGB_decode
+GL_EXT_texture_sRGB_R8
+GL_EXT_texture_sRGB_RG8
+GL_KHR_blend_equation_advanced
+GL_KHR_blend_equation_advanced_coherent
+GL_OES_texture_storage_multisample_2d_array
+GL_OES_shader_image_atomic
+GL_EXT_robustness
+GL_EXT_draw_buffers_indexed
+GL_OES_draw_buffers_indexed
+GL_EXT_texture_border_clamp
+GL_OES_texture_border_clamp
+GL_EXT_texture_cube_map_array
+GL_OES_texture_cube_map_array
+GL_OES_sample_variables
+GL_OES_sample_shading
+GL_OES_shader_multisample_interpolation
+GL_EXT_shader_io_blocks
+GL_OES_shader_io_blocks
+GL_EXT_tessellation_shader
+GL_OES_tessellation_shader
+GL_EXT_primitive_bounding_box
+GL_OES_primitive_bounding_box
+GL_EXT_geometry_shader
+GL_OES_geometry_shader
+GL_ANDROID_extension_pack_es31a
+GL_EXT_gpu_shader5
+GL_OES_gpu_shader5
+GL_EXT_texture_buffer
+GL_OES_texture_buffer
+GL_EXT_copy_image
+GL_OES_copy_image
+GL_EXT_shader_non_constant_global_initializers
+GL_EXT_color_buffer_half_float
+GL_EXT_unpack_subimage
+GL_EXT_color_buffer_float
+GL_EXT_float_blend
+GL_EXT_YUV_target
+GL_OVR_multiview
+GL_OVR_multiview2
+GL_OVR_multiview_multisampled_render_to_texture
+GL_KHR_robustness
+GL_KHR_robust_buffer_access_behavior
+GL_EXT_draw_elements_base_vertex
+GL_OES_draw_elements_base_vertex
+GL_EXT_protected_textures
+GL_EXT_buffer_storage
+GL_EXT_external_buffer
+GL_EXT_EGL_image_array
+GL_EXT_clear_texture
+GL_ARM_shader_core_properties
+GL_EXT_texture_filter_anisotropic
+GL_OES_texture_float_linear
+GL_ARM_texture_unnormalized_coordinates
+GL_EXT_shader_framebuffer_fetch
+GL_EXT_clip_control
+GL_EXT_polygon_offset_clamp
+GL_EXT_EGL_image_storage
+
+DEVICE FEATURES
+
+android.hardware.audio.low_latency
+android.hardware.audio.output
+android.hardware.biometrics.face
+android.hardware.bluetooth
+android.hardware.bluetooth_le
+android.hardware.camera
+android.hardware.camera.any
+android.hardware.camera.autofocus
+android.hardware.camera.capability.manual_post_processing
+android.hardware.camera.capability.manual_sensor
+android.hardware.camera.capability.raw
+android.hardware.camera.flash
+android.hardware.camera.front
+android.hardware.camera.level.full
+android.hardware.consumerir
+android.hardware.faketouch
+android.hardware.fingerprint
+android.hardware.hardware_keystore
+android.hardware.keystore.app_attest_key
+android.hardware.location
+android.hardware.location.gps
+android.hardware.location.network
+android.hardware.microphone
+android.hardware.nfc
+android.hardware.nfc.any
+android.hardware.nfc.hce
+android.hardware.opengles.aep
+android.hardware.ram.normal
+android.hardware.screen.landscape
+android.hardware.screen.portrait
+android.hardware.se.omapi.uicc
+android.hardware.security.model.compatible
+android.hardware.sensor.accelerometer
+android.hardware.sensor.compass
+android.hardware.sensor.gyroscope
+android.hardware.sensor.light
+android.hardware.sensor.proximity
+android.hardware.sensor.stepcounter
+android.hardware.sensor.stepdetector
+android.hardware.telephony
+android.hardware.telephony.calling
+android.hardware.telephony.data
+android.hardware.telephony.gsm
+android.hardware.telephony.ims
+android.hardware.telephony.messaging
+android.hardware.telephony.radio.access
+android.hardware.telephony.subscription
+android.hardware.touchscreen
+android.hardware.touchscreen.multitouch
+android.hardware.touchscreen.multitouch.distinct
+android.hardware.touchscreen.multitouch.jazzhand
+android.hardware.usb.accessory
+android.hardware.usb.host
+android.hardware.vulkan.compute
+android.hardware.vulkan.level
+android.hardware.vulkan.version
+android.hardware.wifi
+android.hardware.wifi.direct
+android.hardware.wifi.passpoint
+android.software.activities_on_secondary_displays
+android.software.adoptable_storage
+android.software.app_enumeration
+android.software.app_widgets
+android.software.autofill
+android.software.backup
+android.software.cant_save_state
+android.software.companion_device_setup
+android.software.contextualsearch
+android.software.controls
+android.software.credentials
+android.software.cts
+android.software.device_admin
+android.software.device_lock
+android.software.erofs
+android.software.file_based_encryption
+android.software.home_screen
+android.software.incremental_delivery
+android.software.input_methods
+android.software.ipsec_tunnels
+android.software.live_wallpaper
+android.software.managed_users
+android.software.midi
+android.software.opengles.deqp.level
+android.software.picture_in_picture
+android.software.print
+android.software.secure_lock_screen
+android.software.securely_removes_users
+android.software.telecom
+android.software.verified_boot
+android.software.voice_recognizers
+android.software.vulkan.deqp.level
+android.software.webview
+android.software.window_magnification
+com.google.android.feature.ASI
+com.google.android.feature.CONTEXTUAL_SEARCH
+com.google.android.feature.D2D_CABLE_MIGRATION_FEATURE
+com.google.android.feature.GMSEXPRESS_PLUS_BUILD
+com.google.android.feature.PERSONAL_SAFETY
+com.google.android.feature.WELLBEING
+com.google.android.feature.qsb_at_bottom
+com.google.android.mainline.patchlevel.2
+com.google.lens.feature.CAMERA_INTEGRATION
+com.google.lens.feature.IMAGE_INTEGRATION
+com.mediatek.hardware.vow.2e2k
+com.mediatek.hardware.vow_dsp.riscv
+com.scorpio.software.securitycom
+com.transsion.hardware.display.camera_notch
+com.transsion.software.anticross.antimonitor
+com.transsion.software.anticross.crackmonitor
+com.transsion.software.anticross.devicelock
+com.transsion.software.anticross.enhancetimer
+com.transsion.software.anticross.nvrecover
+com.transsion.software.anticross.spec
+com.transsion.tranfacfwk
+com.transsion.tranfacsdk
+
+DEVICES
+I2C:
+
+i2c-0:
+0x28 tms,nfc
+i2c-2:
+0xc MAINAF
+0x2a unk2a
+0x50 unk50
+i2c-3:
+0x28 unk28
+0x42 unk42
+0x60 upm7610
+i2c-4:
+0x1a unk1a
+0x51 unk51
+i2c-5:
+0x6b sc8950
+i2c-6:
+0x11 unk11
+0x58 aw87xxx_pa
+0x59 aw87xxx_pa
+0x63 unk63
+i2c-7:
+0x1b unk1b
+0x6f sc8548-charger
+
+Created by Device Info HW+ ver 5.27.1
+
