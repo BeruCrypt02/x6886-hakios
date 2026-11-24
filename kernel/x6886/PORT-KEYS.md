@@ -29,5 +29,10 @@ another board. No iscle source was read.
   (`fdt.dts:3870`), not a verified MT6366 key register. `x6886_pwrkey=1` enables it with an explicit
   owner-sign-off log. This is the "MT6366, not MT6358" PMIC correction: the wrapper base is
   `0x10026000` from this device, never the reference board's.
+- Corroboration **and a conflict** found later in local refs (not used to enable anything):
+  `refs/heliodarwin/wiki/Input-and-HID.md:49` states "MT6366 PMIC `TOPSTATUS` register `0x28`,
+  active-low bit 1", matching the value used here; `refs/klios716/xnu/NOTES.md:705` records a
+  different MT6366 `TOPSTATUS 0x0e` for its own board. Two local sources disagree, so the gate stays
+  OFF until the owner confirms the X6886 register on-device. No iscle source was involved.
 - Polling thread has a hard tick cap (`x6886_keys_ticks`, max `0x00ffffff`), no unbounded `for(;;)`.
 - Every diagnostic goes to printf and to pstore `0x480af000` via `X6886_LOG` (`[X6886-keys]`).
