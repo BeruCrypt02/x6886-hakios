@@ -83,7 +83,7 @@ Expected: a clean on-screen 3-second banner (no glitch stripes) with CPU/OVL0/XN
 
 - OVL0_2L may be the active composer; `display_alpha_off()` still only handles OVL0 — banner could be semi-transparent on the 2L path, but pstore remains.
 - XNU window base 0x140000000 derived from known RAM, not measured on device.
-- `XNU_WDT_SECONDS=30` resets to Android after 30 s for bringup safety.
+- `XNU_WDT_SECONDS=0` leaves TOPRGU off at handoff. The proven timeout encoding stops at 31 s, short of a full userspace boot; a hung run needs a power cycle or Penumbra BROM. Set 1..31 for short bringup runs that want the log-back path.
 
 ## iOS 27 readiness
 
@@ -91,4 +91,4 @@ Kernel `xnu-12377` is built; `ios27/` APFS images exist. This boot image uses th
 in-kernel XNUP payload path (`chainboot` res3), so vendor_boot is untouched. Full
 iOS still needs: correct X6886 ADT (GICD/GICR/timer/OVL0 framebuffer/DRAM verified
 above), XNU drivers for MT6789 UFS + DSI video + FTS touch, and real iOS userland
-from an IPSW. The 30-second watchdog makes repeated safe attempts possible.
+from an IPSW. Bringup runs can set `XNU_WDT_SECONDS=1..31` for repeated attempts with a log reset.

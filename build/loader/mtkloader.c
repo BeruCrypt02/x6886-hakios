@@ -27,6 +27,7 @@
 #include "msdc.h"
 #if HAKIOS_HAS_UFS
 #include "ufs.h"
+#include "ufs_darwin.h"
 #endif
 #include "mtkspi.h"
 #include "tcm.h"
@@ -65,10 +66,18 @@
 #define XNU_SLIDE           (XNU_PHYS_BASE - KERNEL_VIRT_BASE)
 #define PAGE_SIZE_MAX       0x4000ULL
 
-/* Seconds XNU may run before the watchdog resets into Android. Bringup needs a safety net:
- * a hung kernel must not leave the phone stuck. 0: run until reset by hand. */
+/*
+ * Seconds XNU may run before TOPRGU resets into Android. Default 0: disabled
+ * at handoff. The proven TOPRGU_LENGTH encoding ((t * 32768 / 512) << 5 | 8)
+ * tops out at 31 s -- the counter field is 11 bits wide at shift 5. Reaching
+ * 180-300 s would mean changing the prescaler, which nothing in the local
+ * dump or refs proves for MT6789, and a wrong guess would cut SpringBoard off
+ * early. A full userspace boot needs more than 31 s, so leave TOPRGU off and
+ * recover a hung run by power cycle or Penumbra BROM. Set this to 1..31 for
+ * short bringup runs that still want the log-back path.
+ */
 #ifndef XNU_WDT_SECONDS
-#define XNU_WDT_SECONDS     30
+#define XNU_WDT_SECONDS     0
 #endif
 /* Seconds after which the second core takes a snapshot of XNU and resets; 0: no watcher. */
 #ifndef XNU_WATCH_SECONDS
@@ -155,6 +164,15 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
  * is read into DRAM from the xnusys GPT partition and handed to XNU as md0. */
 #ifndef XNU_ROOT_EMMC
 #define XNU_ROOT_EMMC       0
+#endif
+/*
+ * 1: export the stock "super" partition to XNU as /dev/ufs_darwin through the
+ * shared block page, with no DRAM copy. The page is published and the server
+ * core started only if super_apfs_probe() sees a raw APFS NXSB; otherwise the
+ * boot args stay exactly as in Phase 1 and XNU mounts the embedded md0.
+ */
+#ifndef UFS_DARWIN_BLOCK
+#define UFS_DARWIN_BLOCK    1
 #endif
 #if XNU_ROOT_EMMC
 #define XNU_ROOT_ARG        "rd=md0 emmc_root=1"     /* (rd=md0 for libignition's "ramdisk" boot) */
@@ -841,7 +859,7 @@ static int super_apfs_probe(void)
 	if (*(volatile uint32_t *)(sector_buf + 32) == 0x4253584eu) {
 		apfs_lba_off = 0;
 		apfs_part = "super";
-		out("super: raw APFS container at offset 0\n");
+		out("super: raw APFS container at LBA 0 (NXSB at +0x20)\n");
 		return 1;
 	}
 	out("super: no APFS header, using embedded md0 root26-darwin.apfs\n");
@@ -2464,6 +2482,52 @@ static void watcher_start(void)
 	out(watcher_started ? ", running\n" : ", not seen\n");
 }
 
+/* The server core takes the slot after the cores given to XNU. The watcher
+ * wants the same slot, so a run cannot have both. */
+static void block_server_start(void)
+{
+	if (!UFS_DARWIN_BLOCK || ufs_darwin_blocks == 0) {
+		return;
+	}
+	if (XNU_WATCH_SECONDS) {
+		out("block server: watcher owns cpu");
+		out_dec(WATCH_CORE);
+		out(", no /dev/ufs_darwin\n");
+		return;
+	}
+	ufs_darwin_started = 0;
+	int64_t r = psci_cpu_on((uint64_t)WATCH_CORE << 8, (uint64_t)block_server_entry, 0);
+	out("block server on cpu");
+	out_dec(WATCH_CORE);
+	out(": PSCI CPU_ON ");
+	out_dec((uint64_t)r);
+	for (int i = 0; i < 200 && !ufs_darwin_started; i++) {
+		dbg_delay_ms(10);
+	}
+	out(ufs_darwin_started ? ", running\n" : ", not seen\n");
+}
+
+/* The boot line is built at run time: ufs_shared_pa= is the address of a
+ * static page, so it cannot be a compile-time string. */
+static uint32_t cmd_put(char *d, uint32_t n, const char *s)
+{
+	while (*s && n < 511) {
+		d[n++] = *s++;
+	}
+	return n;
+}
+
+static uint32_t cmd_hex64(char *d, uint32_t n, uint64_t v)
+{
+	static const char hex[] = "0123456789abcdef";
+
+	n = cmd_put(d, n, "0x");
+	for (int shift = 60; shift >= 0 && n < 511; shift -= 4) {
+		d[n++] = hex[(v >> shift) & 15u];
+	}
+	return n;
+}
+
 /* ---- starting XNU ---- */
 
 /* ---- how fast the cores are running ---- */
@@ -2875,8 +2939,17 @@ static void __attribute__((noreturn)) run_xnu(void)
 	uint64_t sys_size;
 
 	if (!XNU_ROOT_EMMC && super_apfs_probe()) {
-		out("root: super APFS as md0\n");
-		sys_size = load_system_image();
+		uint64_t slba = 0, sblocks = 0;
+
+		if (UFS_DARWIN_BLOCK && gpt_find("super", &slba, &sblocks)) {
+			ufs_darwin_publish(slba, sblocks);
+			out("root: super APFS via /dev/ufs_darwin, no DRAM preload\n");
+			block_server_start();
+			sys_size = 0;
+		} else {
+			out("root: super APFS as md0\n");
+			sys_size = load_system_image();
+		}
 	} else {
 		out("root: embedded md0 root26-darwin.apfs\n");
 		sys_size = 0;
@@ -2906,7 +2979,21 @@ static void __attribute__((noreturn)) run_xnu(void)
 	ba->video.v_width = PANEL_W;
 	ba->video.v_height = PANEL_H;
 	ba->video.v_depth = 32;
-	memcpy(ba->commandLine, XNU_BOOT_ARGS, sizeof(XNU_BOOT_ARGS));
+	char cmd[512];
+	uint32_t cn = 0;
+
+	cn = cmd_put(cmd, cn, "debug=0x8 serial=3 " XNU_ROOT_ARG " ");
+	if (UFS_DARWIN_BLOCK && ufs_darwin_started) {
+		cn = cmd_put(cmd, cn, "ufs=2 root_apfs=ufs_darwin ufs_shared_pa=");
+		cn = cmd_hex64(cmd, cn, ufs_darwin_page_pa());
+		cn = cmd_put(cmd, cn, " ");
+	}
+#if XNU_VERBOSE
+	cn = cmd_put(cmd, cn, "-v ");
+#endif
+	cn = cmd_put(cmd, cn, XNU_EXTRA_ARGS " loader_return_after=" XNU_RETURN_AFTER);
+	cmd[cn] = 0;
+	memcpy(ba->commandLine, cmd, cn + 1);
 
 	out("md0 ");
 	out_hex(sys_size ? sys_pa : rd_pa);
@@ -2915,7 +3002,9 @@ static void __attribute__((noreturn)) run_xnu(void)
 	if (sys_size) {
 		out_hex(rd_pa);
 	}
-	out("\nboot-args: " XNU_BOOT_ARGS "\nframebuffer ");
+	out("\nboot-args: ");
+	out(cmd);
+	out("\nframebuffer ");
 	out_hex(fb_base);
 	out(" pitch ");
 	out_dec(fb_pitch);
@@ -2936,7 +3025,12 @@ static void __attribute__((noreturn)) run_xnu(void)
 		out_dec(t);
 		out(" s\n");
 	} else {
+		/* LK may have armed TOPRGU before handing us the boot image. Writing
+		 * MODE without the enable bit is the sequence mtkdbg.h already uses
+		 * elsewhere; it stops the counter without touching DRAM or the marker. */
+		wdt_disable();
 		marker_set(0);
+		out("watchdog: disabled at XNU handoff; power cycle or Penumbra BROM recovers\n");
 	}
 	/* The timers XNU will use: a virtual counter offset by EL2 (MediaTek's GenieZone) would
 	 * leave its deadlines forever in the future, and the kernel idle with nothing to wake it. */

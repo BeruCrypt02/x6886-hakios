@@ -6,6 +6,7 @@ build/*
 !build/loader/
 build/loader/*
 !build/loader/ufs.h
+!build/loader/ufs_darwin.h
 !build/loader/mtkloader.c
 !build/loader/start.S
 out/

@@ -11,6 +11,7 @@
 .global psci_system_reset
 .global psci_cpu_on
 .global watcher_entry
+.global block_server_entry
 .global mmu_on
 .global dcache_clean_range
 .global irq_wait
@@ -244,6 +245,19 @@ watcher_entry:
 1:  wfe
     b       1b
 
+/* The core that serves XNU's /dev/ufs_darwin reads while XNU runs on core 0. */
+block_server_entry:
+    msr     daifset, #0xf
+    adrp    x9, mtk_vectors
+    add     x9, x9, :lo12:mtk_vectors
+    msr     vbar_el1, x9
+    adrp    x9, block_server_stack_top
+    add     x9, x9, :lo12:block_server_stack_top
+    mov     sp, x9
+    bl      block_server_main
+1:  wfe
+    b       1b
+
 /*
  * mmu_on(l1_table_pa): 4K granule, 39-bit addresses from one level-1 table of 1 GB blocks,
  * MAIR attr 0 device nGnRnE, attr 1 normal write-back. Inner shareable, so this core's
@@ -436,6 +450,9 @@ fault_stack_top:
 watcher_stack_bottom:
     .space 0x8000
 watcher_stack_top:
+block_server_stack_bottom:
+    .space 0x8000
+block_server_stack_top:
 xnu_fault_stack_bottom:
     .space 0x4000
 xnu_fault_stack_top:

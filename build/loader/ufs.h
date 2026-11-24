@@ -15,12 +15,19 @@
 #define UFSHC_IE            0x024u
 #define UFSHC_HCS           0x030u
 #define UFSHC_HCE           0x034u
+/* 0x38 is the UIC PHY-adapter error code, read-to-clear. Log before clearing. */
 #define UFSHC_UECPA         0x038u
 #define UFSHC_UTRLBA        0x050u
 #define UFSHC_UTRLBAU       0x054u
 #define UFSHC_UTRLDBR       0x058u
 #define UFSHC_UTRLCLR       0x05Cu
 #define UFSHC_UTRLRSR       0x060u
+/* Task-management list. Audited here, left STOPPED: every request this driver
+ * sends (including QUERY REQUEST) goes through the transfer list, not UTMRL. */
+#define UFSHC_UTMRLBA       0x070u
+#define UFSHC_UTMRLBAU      0x074u
+#define UFSHC_UTMRLDBR      0x078u
+#define UFSHC_UTMRLRSR      0x080u
 /* UIC command registers + MediaTek vendor reference-clock control. */
 #define UFSHC_UICCMD        0x090u
 #define UFSHC_UICARG1       0x094u
@@ -39,7 +46,12 @@
 
 #define UFSHC_CAP_NUTRS_MASK 0x1Fu
 #define UFSHC_CAP_64BIT      (1u << 24)
-#define UFSHC_HCS_READY      0x03u
+/* HCS: bit0 UCRDY, bit1 UTRLRDY, bit2 UTMRLRDY, bit3 DP. 0x0f = all ready. */
+#define UFSHC_HCS_UCRDY      (1u << 0)
+#define UFSHC_HCS_UTRLRDY    (1u << 1)
+#define UFSHC_HCS_UTMRLRDY   (1u << 2)
+#define UFSHC_HCS_DP         (1u << 3)
+#define UFSHC_HCS_READY      (UFSHC_HCS_UCRDY | UFSHC_HCS_UTRLRDY)
 #define UFSHC_IS_FATAL       0x00031804u
 #define IS_UIC_ERROR         (1u << 2)
 #define IS_UIC_COMMAND_COMPL (1u << 10)
@@ -116,7 +128,13 @@ struct ufs_err {
 };
 static struct ufs_err ufs_last;
 
-/* Read-only snapshot, safe at every stage (no side effects). */
+/*
+ * Every dbg_* character goes to the panel and to the ramoops console at
+ * 0x480af000, so one call leaves the same evidence in both places.  Reading
+ * 0x38..0x48 clears the UIC error codes; the value printed is also the clear.
+ * Called at the list-enable gate so the next hardware log shows the exact
+ * register state at the point where UTRLRSR fails to latch.
+ */
 static void ufs_dump_state(const char *when)
 {
     dbg_puts("UFS ");
@@ -127,12 +145,19 @@ static void ufs_dump_state(const char *when)
     dbg_puts(" HCE ");    dbg_hex(rd32(UFS_BASE + UFSHC_HCE), 8);
     dbg_puts(" IS ");     dbg_hex(rd32(UFS_BASE + UFSHC_IS), 8);
     dbg_puts(" UECPA ");  dbg_hex(rd32(UFS_BASE + UFSHC_UECPA), 8);
+    dbg_puts("\nUFS lists: UTRLBA ");  dbg_hex(rd32(UFS_BASE + UFSHC_UTRLBA), 8);
+    dbg_puts(" UTRLBAU "); dbg_hex(rd32(UFS_BASE + UFSHC_UTRLBAU), 8);
+    dbg_puts(" UTRLDBR "); dbg_hex(rd32(UFS_BASE + UFSHC_UTRLDBR), 8);
     dbg_puts(" UTRLRSR "); dbg_hex(rd32(UFS_BASE + UFSHC_UTRLRSR), 8);
-    dbg_puts(" REFCLK "); dbg_hex(rd32(UFS_BASE + UFSHC_REFCLK_CTRL), 8);
+    dbg_puts("\nUFS task:  UTMRLBA "); dbg_hex(rd32(UFS_BASE + UFSHC_UTMRLBA), 8);
+    dbg_puts(" UTMRLBAU "); dbg_hex(rd32(UFS_BASE + UFSHC_UTMRLBAU), 8);
+    dbg_puts(" UTMRLDBR "); dbg_hex(rd32(UFS_BASE + UFSHC_UTMRLDBR), 8);
+    dbg_puts(" UTMRLRSR "); dbg_hex(rd32(UFS_BASE + UFSHC_UTMRLRSR), 8);
     dbg_puts("\nUFS rst: 0x130 "); dbg_hex(rd32(UFS_INFRACFG + INFRACFG_HCI_SET), 8);
     dbg_puts(" 0x134 ");  dbg_hex(rd32(UFS_INFRACFG + INFRACFG_HCI_CLR), 8);
     dbg_puts(" 0x140 ");  dbg_hex(rd32(UFS_INFRACFG + INFRACFG_UNIPRO_SET), 8);
     dbg_puts(" 0x144 ");  dbg_hex(rd32(UFS_INFRACFG + INFRACFG_UNIPRO_CLR), 8);
+    dbg_puts(" REFCLK "); dbg_hex(rd32(UFS_BASE + UFSHC_REFCLK_CTRL), 8);
     dbg_puts("\n");
 }
 
@@ -459,13 +484,18 @@ static int ufs_lun2_ready(void)
     return 1;
 }
 
+/*
+ * Controller-level gates only. UTRLRSR is deliberately NOT checked here:
+ * ufs_bringup() cycles HCE, which stops the list, and the list is installed
+ * afterwards by ufs_list_start(). The old check bailed out with "list not
+ * running" before that code ran, so no request ever reached the device.
+ */
 static int ufs_ready(void)
 {
     uint32_t cap = rd32(UFS_BASE + UFSHC_CAP);
     uint32_t hcs = rd32(UFS_BASE + UFSHC_HCS);
     uint32_t hce = rd32(UFS_BASE + UFSHC_HCE);
     uint32_t is  = rd32(UFS_BASE + UFSHC_IS);
-    uint32_t rsr = rd32(UFS_BASE + UFSHC_UTRLRSR);
 
     if (!(hce & 1)) {
         return ufs_fail("controller not enabled", hce);
@@ -473,8 +503,8 @@ static int ufs_ready(void)
     if ((hcs & UFSHC_HCS_READY) != UFSHC_HCS_READY) {
         return ufs_fail("controller not ready", hcs);
     }
-    if (!(rsr & 1)) {
-        return ufs_fail("list not running", rsr);
+    if (!(hcs & UFSHC_HCS_UTRLRDY)) {
+        return ufs_fail("UTRLRDY low", hcs);
     }
     if ((cap & UFSHC_CAP_NUTRS_MASK) + 1 < UFS_SLOTS) {
         return ufs_fail("too few slots", cap);
@@ -488,10 +518,100 @@ static int ufs_ready(void)
     return 1;
 }
 
+/* This loader runs with SCTLR_EL1.C=0 (start.S), so the clean is defensive.
+ * It becomes required if caches are ever enabled before the list start. */
+static void ufs_clean_desc(uint64_t va, uint64_t size)
+{
+    uint64_t end = (va + size + 63u) & ~63ULL;
+
+    for (uint64_t a = va & ~63ULL; a < end; a += 64u) {
+        __asm__ volatile("dc cvac, %0" :: "r"(a) : "memory");
+    }
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+/* UIC error codes 0x38..0x48 are read-to-clear. Clear them once after link
+ * startup, before the list is enabled, so a stale latch cannot block it. */
+static void ufs_clear_uic_errors(void)
+{
+    (void)rd32(UFS_BASE + UFSHC_UECPA);
+    (void)rd32(UFS_BASE + 0x03Cu);
+    (void)rd32(UFS_BASE + 0x040u);
+    (void)rd32(UFS_BASE + 0x044u);
+    (void)rd32(UFS_BASE + 0x048u);
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+/* Install our own transfer list and start it. Called after link up, PA_PWRMODE
+ * and HCS.UTRLRDY==1 -- never before. UTMRL stays stopped: this driver sends
+ * no task-management requests, and writing UTMRL* would only disturb state. */
+static int ufs_list_start(uint64_t list_phys)
+{
+    struct utp_transfer_req_desc *utrd = (struct utp_transfer_req_desc *)list_phys;
+    uint64_t ucd_pa = list_phys + UFS_SLOTS * sizeof(*utrd);
+    uint32_t rsr;
+
+    if (!(rd32(UFS_BASE + UFSHC_HCS) & UFSHC_HCS_UTRLRDY)) {
+        return ufs_fail("UTRLRDY low at list start", rd32(UFS_BASE + UFSHC_HCS));
+    }
+    if (!list_phys || (list_phys & 0x3ffu)) {
+        return ufs_fail("UTRLBA not 1KiB aligned", (uint32_t)list_phys);
+    }
+    /* 64-bit DMA: high base word must be a plausible DRAM PA (< 64 GiB). */
+    if ((list_phys >> 32) >= 0x10u || (ucd_pa >> 32) >= 0x10u) {
+        return ufs_fail("UTRLBA/UCD not valid DMA", (uint32_t)(list_phys >> 32));
+    }
+    if (rd32(UFS_BASE + UFSHC_UTRLDBR) != 0) {
+        return ufs_fail("doorbell busy at list start", rd32(UFS_BASE + UFSHC_UTRLDBR));
+    }
+
+    for (uint32_t i = 0; i < UFS_SLOTS; i++) {
+        volatile uint32_t *w = (volatile uint32_t *)&utrd[i];
+        uint64_t ucd = ucd_pa + (uint64_t)i * sizeof(struct utp_transfer_cmd_desc);
+
+        for (uint32_t k = 0; k < sizeof(*utrd) / 4u; k++) {
+            w[k] = 0;
+        }
+        utrd[i].command_desc_base_addr_lo = (uint32_t)ucd;
+        utrd[i].command_desc_base_addr_hi = (uint32_t)(ucd >> 32);
+    }
+    ufs_clear_uic_errors();
+    ufs_clean_desc(list_phys, UFS_SLOTS * (sizeof(*utrd) + sizeof(struct utp_transfer_cmd_desc)));
+    ufs_dump_state("before list start");
+
+    wr32(UFS_BASE + UFSHC_UTRLRSR, 0);
+    for (uint32_t i = 0; i < 1000 && (rd32(UFS_BASE + UFSHC_UTRLRSR) & 1u); i++) {
+        dbg_delay_ms(1);
+    }
+    if (rd32(UFS_BASE + UFSHC_UTRLRSR) & 1u) {
+        wr32(UFS_BASE + UFSHC_UTRLRSR, 1);
+        return ufs_fail("list would not stop", rd32(UFS_BASE + UFSHC_UTRLRSR));
+    }
+    wr32(UFS_BASE + UFSHC_UTRLBA, (uint32_t)list_phys);
+    wr32(UFS_BASE + UFSHC_UTRLBAU, (uint32_t)(list_phys >> 32));
+    __asm__ volatile("dsb sy" ::: "memory");
+    if (rd32(UFS_BASE + UFSHC_UTRLBA) != (uint32_t)list_phys ||
+        rd32(UFS_BASE + UFSHC_UTRLBAU) != (uint32_t)(list_phys >> 32)) {
+        return ufs_fail("UTRLBA writeback", rd32(UFS_BASE + UFSHC_UTRLBA));
+    }
+    wr32(UFS_BASE + UFSHC_UTRLRSR, 1);
+    for (uint32_t i = 0; i < 1000; i++) {
+        rsr = rd32(UFS_BASE + UFSHC_UTRLRSR);
+        if (rsr & 1u) {
+            break;
+        }
+        dbg_delay_ms(1);
+    }
+    ufs_dump_state("after list start");
+    if (!(rd32(UFS_BASE + UFSHC_UTRLRSR) & 1u)) {
+        return ufs_fail("UTRLRSR did not latch", rd32(UFS_BASE + UFSHC_UTRLRSR));
+    }
+    dbg_puts("UFS: UTRLRSR latched, list running\n");
+    return 1;
+}
+
 static int ufs_init(uint64_t list_phys)
 {
-    uint32_t db;
-
     /* Read-only snapshot before touching anything, for the on-screen log. */
     ufs_dump_state("as LK left it");
     /*
@@ -503,24 +623,8 @@ static int ufs_init(uint64_t list_phys)
     if (!ufs_bringup() || !ufs_ready()) {
         return 0;
     }
-    db = rd32(UFS_BASE + UFSHC_UTRLDBR);
-    if (db != 0) {
-        return ufs_fail("doorbell busy", db);
-    }
-    wr32(UFS_BASE + UFSHC_UTRLRSR, 0);
-    for (uint32_t i = 0; i < 2000000 && (rd32(UFS_BASE + UFSHC_UTRLRSR) & 1); i++) {
-    }
-    if (rd32(UFS_BASE + UFSHC_UTRLRSR) & 1) {
-        wr32(UFS_BASE + UFSHC_UTRLRSR, 1);
-        return ufs_fail("list would not stop", rd32(UFS_BASE + UFSHC_UTRLRSR));
-    }
-    wr32(UFS_BASE + UFSHC_UTRLBA, (uint32_t)list_phys);
-    wr32(UFS_BASE + UFSHC_UTRLBAU, (uint32_t)(list_phys >> 32));
-    wr32(UFS_BASE + UFSHC_UTRLRSR, 1);
-    if (rd32(UFS_BASE + UFSHC_UTRLBA) != (uint32_t)list_phys ||
-        rd32(UFS_BASE + UFSHC_UTRLBAU) != (uint32_t)(list_phys >> 32) ||
-        !(rd32(UFS_BASE + UFSHC_UTRLRSR) & 1)) {
-        return ufs_fail("list handoff failed", rd32(UFS_BASE + UFSHC_UTRLRSR));
+    if (!ufs_list_start(list_phys)) {
+        return 0;
     }
     ufs_list_phys = list_phys;
     dbg_puts("UFS: transfer list handed off\n");
