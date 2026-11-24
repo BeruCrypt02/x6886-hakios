@@ -125,8 +125,14 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
 #ifndef TIMER_PROBE
 #define TIMER_PROBE         0
 #endif
+/*
+ * Android is the default. XNU is opt-in only through the one-shot
+ * "HAKIOS:BOOT-XNU" line in the pmsg zone (tools/boot-xnu.sh). With the old
+ * default of 1, every reboot after the XNU watchdog reset chose XNU again,
+ * which is what made the phone loop forever even after the marker was cleared.
+ */
 #ifndef MENU_DEFAULT_XNU
-#define MENU_DEFAULT_XNU    1
+#define MENU_DEFAULT_XNU    0
 #endif
 /*
  * 1: the kernel's text console on the screen (-v). It is a slow way to run -- scrolling reads
@@ -1187,6 +1193,15 @@ static void diag_pause(uint32_t ms)
 	}
 }
 
+/* Genuine failure only: stay on screen instead of resetting into a bootloop. */
+static void __attribute__((noreturn)) halt_readable(void)
+{
+	for (;;) {
+		wr32(TOPRGU_RESTART, TOPRGU_RESTART_KEY);
+		dbg_delay_ms(250);
+	}
+}
+
 static void __attribute__((noreturn)) chain_android(void)
 {
 	uint64_t base = sym_start();
@@ -1212,14 +1227,20 @@ static void __attribute__((noreturn)) chain_android(void)
 		out(" res3 "); out_hex(hdr[5]);
 		out(" hdr_size "); out_hex((uint64_t)img[4] | ((uint64_t)img[5] << 32));
 		out(" magic "); out_hex(img[14]);
-		out("\n");
-		diag_pause(3000);
-		reset_board();
+		out("\nHalted: chain failed, cycle power to boot Android.\n");
+		diag_pause(5000);
+		halt_readable();
 	}
 #if TOUCH_PROBE
 	touch_hand_back();
 #endif
-	out("starting Android\n");
+	out("starting Android: base ");
+	out_hex(base);
+	out(" image_size ");
+	out_dec(image_size);
+	out("\n");
+	/* Short readable pause before the stub overwrites this program. */
+	diag_pause(1000);
 
 	volatile uint32_t *dst = (volatile uint32_t *)CHAIN_STUB_PA;
 	uint64_t stub_pa = sym_chain_stub(), stub_end_pa = sym_chain_stub_end();
@@ -3749,21 +3770,20 @@ void mtkloader_main(uint64_t dtb)
 		chain_android();
 	}
 	if (mark == MARK_RUNNING) {
+		/* TOPRGU cut XNU short after its run. Save what we can, then hand the
+		 * phone back cleanly: clear the marker so the NEXT boot stays in
+		 * Android (MENU_DEFAULT_XNU is 0, so only the pmsg flag selects XNU). */
 		rescue_log();
-		/* TOPRGU cut XNU short: XNU really booted and ran. Chaining Android here
-		 * sent the phone into the observed bootloop. Stop with a readable screen
-		 * so the log above can be photographed instead of being wiped by a reset. */
 		fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
 		fbc.x = 16;
 		fbc.y = fbc.top = 200;
 		fbc.scale = 2;
 		fbc.fg = 0xff40ff40u;
 		out("\n=== XNU ran, TOPRGU watchdog reset ===\n");
-		out("Halted for inspection; cycle power to boot Android.\n");
-		for (;;) {
-			wr32(TOPRGU_RESTART, TOPRGU_RESTART_KEY);
-			dbg_delay_ms(250);
-		}
+		out("XNU ran; returning to Android\n");
+		marker_set(0);
+		diag_pause(3000);
+		chain_android();   /* only halts here if the Android Image is really bad */
 	}
 
 	plog_reset();
