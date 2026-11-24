@@ -196,7 +196,7 @@ static int
 ring_init(struct x6886_cell_ring *r, uint32_t size)
 {
 	bzero(r, sizeof(*r));
-	r->buf = (uint8_t *)kalloc(size);
+	r->buf = (uint8_t *)kalloc_data(size, Z_WAITOK);
 	if (r->buf == NULL) {
 		return -1;
 	}
@@ -209,7 +209,7 @@ static void
 ring_free(struct x6886_cell_ring *r)
 {
 	if (r->buf != NULL) {
-		kfree(r->buf, r->size);
+		kfree_data(r->buf, r->size);
 		r->buf = NULL;
 	}
 	r->size = 0;
