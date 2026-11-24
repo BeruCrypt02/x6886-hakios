@@ -12,9 +12,13 @@
  *   pwrap@10026000, reg 0x10026000/0x1000                     : fdt.dts:3219-3220
  *   mt6366keys / power linux keycode 0x74                     : fdt.dts:3356-3362
  *
- * Opt-in: boot-arg x6886_keys=1. x6886_pwrkey=1 additionally enables the PMIC power key;
- * it is OFF by default because the TOPSTATUS offset (0x28, mtk_keys.c:38) is an MT6358-compatible
- * register carried by the mt6366 node (fdt.dts:3870) and needs owner sign-off for this PMIC.
+ * Opt-in: boot-arg x6886_keys=1; x6886_pwrkey=0 opts out of the PMIC power key.
+ * MT6366 TOPSTATUS 0x28 / PWRKEY debounce mask 0x1 (bit 0, active low) are proven from the
+ * device-family primary source refs/alps-device-modules-6.12:
+ *   TOPSTATUS + mask and mt6366_regs wiring : drivers/input/keyboard/mtk-pmic-keys.c:44,47,170-175
+ *   of_match mediatek,mt6366-keys           : mtk-pmic-keys.c:681-682
+ *   active-low debounce read                : mtk-pmic-keys.c:464-470
+ *   node for this SoC                       : arch/arm64/boot/dts/mediatek/mt6366_mt6789.dtsi:123-124
  * Bounded polling, no panic, clean error return on any failed map or pwrap transaction.
  */
 
@@ -25,7 +29,7 @@
 #include <libkern/libkern.h>
 #include <mach/mach_types.h>
 #include <pexpert/pexpert.h>
-#include <sys/hakios_input.h>
+#include <sys/board/input.h>
 #include <sys/systm.h>
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
@@ -103,8 +107,8 @@ x6886_pstore_write(const char *message, unsigned length)
 #define PWRAP_FSM_IDLE          0u              /* mtk_keys.c:35 */
 #define PWRAP_FSM_WFVLDCLR      6u              /* mtk_keys.c:36 */
 #define PWRAP_SPINS             100000u         /* mtk_keys.c:66: bounded wait */
-#define MT6366_TOPSTATUS        0x28u           /* mtk_keys.c:38: MT6358-compatible map, owner sign-off */
-#define PWRKEY_DEB              (1u << 1)       /* mtk_keys.c:39 */
+#define MT6366_TOPSTATUS        0x28u           /* mtk-pmic-keys.c:44 (MT6366_TOPSTATUS) */
+#define PWRKEY_DEB              0x1u            /* mtk-pmic-keys.c:47,469-470: bit 0, active low */
 
 #define X6886_POLL_US           20000u          /* mtk_keys.c:12,376: 20 ms */
 #define X6886_KEYS_TICKS        0x00ffffffu     /* hard bound on the polling thread */
@@ -182,7 +186,7 @@ keys_thread(__unused void *parameter, __unused wait_result_t result)
 	(void)PE_parse_boot_argn("keylog", &log, sizeof(log));
 	X6886_LOG("keypad %#x, pwrap %s, MT6366 power key %s; %u ticks\n",
 	    rd(kpd, KP_MEM1), pwrap_wait(PWRAP_FSM_IDLE) ? "ready" : "NOT READY",
-	    pwrkey_enabled ? "enabled (owner sign-off)" : "disabled", caps);
+	    pwrkey_enabled ? "enabled (verified alps MT6366)" : "disabled", caps);
 
 	for (unsigned tick = 1; tick <= caps; tick++) {
 		uint32_t mem = rd(kpd, KP_MEM1), top = PWRKEY_DEB;
@@ -233,13 +237,13 @@ x6886_keys_init(void)
 		X6886_LOG("cannot map keypad %#x / pwrap %#x; no buttons\n", X6886_KPD_PHYS, X6886_PWRAP_PHYS);
 		return ENXIO;
 	}
-	uint32_t pwrkey_arg = 0;
+	uint32_t pwrkey_off = 0;
 
-	(void)PE_parse_boot_argn("x6886_pwrkey", &pwrkey_arg, sizeof(pwrkey_arg));
-	pwrkey_enabled = pwrkey_arg != 0;
+	(void)PE_parse_boot_argn("x6886_pwrkey", &pwrkey_off, sizeof(pwrkey_off));
+	pwrkey_enabled = pwrkey_off == 0;       /* on by default; x6886_pwrkey=0 opts out */
 	if (pwrkey_enabled) {
-		X6886_LOG("MT6366 power key enabled on MT6358-compatible TOPSTATUS %#x (owner sign-off needed)\n",
-		    MT6366_TOPSTATUS);
+		X6886_LOG("MT6366 power key enabled: TOPSTATUS %#x, debounce mask %#x (active low)\n",
+		    MT6366_TOPSTATUS, PWRKEY_DEB);
 	}
 	if (kernel_thread_start(keys_thread, NULL, &thread) != KERN_SUCCESS) {
 		X6886_LOG("cannot start the 20 ms polling thread; no buttons\n");
