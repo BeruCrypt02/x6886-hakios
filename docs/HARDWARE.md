@@ -66,3 +66,5 @@ HelioDarwin X676C (same SoC family) reports:
 - ramoops console `0x4811f000`, size `0x40000`.
 
 These values are reference data. Each one must be checked against the X6886 tree before use.
+In particular, X6886's live ramoops console is `0x480af000` (the non-zero `ftrace_size=0x1000`
+shifts it 4 KiB below the X676C value), and its framebuffer is `0xfe0c0000` with a 4352-byte stride.
