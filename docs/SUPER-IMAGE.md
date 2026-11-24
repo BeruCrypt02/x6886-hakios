@@ -81,3 +81,101 @@ block-driver limitation.** Phase 1 therefore keeps the small
   copy, no window cap, no extra md slot.
 
 Neither option changes Phase 1 code or the Phase 1 image layout.
+
+## Build the Phase 1 image
+
+`super` starts at LBA `0x60000` on UFS LUN 2 and spans `0x30bd75` blocks. The
+partition is 13,083,561,984 bytes (`0x30bd75000`). Write the image to the
+partition start, not to an LBA inside it. The UFS block size is 4096.
+
+The loader accepts two forms at `super` LBA 0. Raw APFS with `NXSB` at byte 32
+needs no wrapper. The HAKIOS v1 form puts a 512-byte header in block 0 and the
+APFS container in block 1. Phase 1 uses the HAKIOS form with
+`ios27/root26-darwin.apfs`, because the loader preloads that 4 MiB container
+into DRAM and hands it to XNU as md0.
+
+```sh
+cd /home/berucrypt00/hakios-x6886
+python3 - <<'PY'
+import struct
+B = 4096
+SUPER = 0x30bd75000
+hdr = b'HAKIOS\0\0' + struct.pack('<IIQQ', 1, 0, B, B) + b'\0' * 480
+root = open('ios27/root26-darwin.apfs', 'rb').read()
+assert len(root) == B and root[32:36] == b'NXSB'
+img = hdr + b'\0' * (B - len(hdr)) + root + b'\0' * B
+img += b'\0' * (SUPER - len(img))
+open('build/hakios-super.img', 'wb').write(img)
+print('build/hakios-super.img', len(img), 'bytes')
+PY
+```
+
+Block 0 holds the header. Block 1 holds the container at partition byte 4096.
+Block 2 is zero and stops `load_system_image()` from walking into later data.
+The rest of the image is zero padding to the full partition size.
+
+Check the image before any device work:
+
+```sh
+python3 - <<'PY'
+import struct
+d = open('build/hakios-super.img', 'rb').read(3 * 4096)
+assert d[:8] == b'HAKIOS\0\0'
+assert struct.unpack_from('<IIQQ', d, 8) == (1, 0, 4096, 4096)
+assert d[4096 + 32:4096 + 36] == b'NXSB'
+assert d[8192:12288] == b'\0' * 4096
+print('header, APFS container, and terminator OK')
+PY
+```
+
+`ios27/system27-prune.apfs` is 4,297,248,768 bytes. The loader rejects any
+container larger than `0xf3600000` bytes, so leave it out of this image. Raw
+`system27-prune.apfs` written at LBA 0 is still accepted by the GPT probe, but
+`load_system_image()` refuses to preload it. Phase 2 handles that case.
+
+## Flash from stock Recovery
+
+Boot stock Recovery, push both images, and write them with `dd`. The `super`
+write covers the whole partition.
+
+```sh
+adb push build/hakios-super.img /sdcard/hakios-super.img
+adb push build/boot-x6886-final.img /sdcard/hakios-boot.img
+adb shell 'dd if=/sdcard/hakios-super.img of=/dev/block/by-name/super bs=4096 conv=fsync'
+adb shell 'dd if=/sdcard/hakios-boot.img of=/dev/block/by-name/boot_a bs=4096 conv=fsync'
+```
+
+Leave GPT, preloader, LK, tee, vbmeta, userdata, metadata, `tr_product`,
+`tr_region`, and slot B alone. Phase 1 touches `super` and `boot_a` only.
+
+## Rollback
+
+Take a stock `super` backup before the first flash. There is no full stock
+`super` dump in `/home/berucrypt00/otadump`; `super_empty.img` is 6224 bytes and
+cannot restore the partition.
+
+```sh
+adb shell 'dd if=/dev/block/by-name/super of=/sdcard/stock-super.img bs=4096'
+adb pull /sdcard/stock-super.img /home/berucrypt00/otadump/stock-super.img
+```
+
+If `boot_a` hangs, restore it from BootROM mode with Penumbra. The device must
+enumerate on USB VCOM and a compatible DA with satisfied auth must be on the
+host.
+
+```sh
+./antumbra write boot_a /home/berucrypt00/otadump/images/boot.img --da <compatible_DA.bin>
+./antumbra reboot normal --da <compatible_DA.bin>
+```
+
+Stock Android or stock Recovery boots at that point. From Recovery, write the
+stock `super` backup back:
+
+```sh
+adb push /home/berucrypt00/otadump/stock-super.img /sdcard/stock-super.img
+adb shell 'dd if=/sdcard/stock-super.img of=/dev/block/by-name/super bs=4096 conv=fsync'
+```
+
+`mtk.py w boot_a <image>` replaces the two `antumbra` write and reboot commands
+when the operator uses mtkclient instead. Penumbra cannot enable `fastboot
+boot` on this LK, and the BootROM path stays conditional on DA and auth.

@@ -49,3 +49,26 @@ either path.
 3. GIC EOImode fix and `timer probe at EL1` must show virtual timer PPI 27 taken.
 4. UFS must pass HCE, infracfg reset, SMC 0x82000276, refclk PRE+POST, DME_LINK_STARTUP and fDeviceInit, then read LUN 2 GPT `super` and APFS `NXSB`.
 5. Hand XNU DRAM `0x140000000 + 0x0ff600000`, clean caches at EL1 and EL2, keep the 30 s TOPRGU watchdog for fallback.
+
+## Phased rollout
+
+Phase 1 covers the handoff only. The loader boots XNU directly, drives the early
+console at `0x480af000`, sets up GIC and arch timers, brings up UFS through LUN 2
+with the GPT and APFS probe, and installs VBAR_EL1 fault vectors. No display,
+touch, power, audio, sensor, or camera driver runs in XNU yet. The loader draws
+the panel banner. XNU uses the 4 MiB embedded md0; the 4.002 GiB
+`system27-prune.apfs` stays out of the flashed image because the preload cap
+rejects it.
+
+Phase 2 covers input and the live root. Port FocalTech touch on `spi1`, power
+and volume keys, and the MT6366 power path. Keep the loader framebuffer as the
+console until each driver prints an X6886 probe line. Wire the XNU UFS shared
+page and direct `super` mount from
+`plan/phase2-ufs-darwin-reference.patch`, then move XNU from embedded md0 to
+`/dev/ufs_darwin`.
+
+Phase 3 covers graphics, audio, sensors, camera, and connectivity. Put each
+driver behind its own boot arg so a failed probe leaves the Phase 1 handoff
+intact. Mark a row DONE only after an X6886 log line exists. Reference logs
+from X676C and HelioDarwin stay in the source column; they are not proof of a
+working X6886 driver.
