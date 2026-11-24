@@ -31,8 +31,12 @@ request write (`:145`). This driver only reads; it never writes a charging or ga
 - Only PMIC **reads**. Current and coulomb-counter percentage are unavailable by design (the
   reference obtains them only by writing FGADC_CON1), so `current_ua` is 0 and the SOC comes from
   the already-latched RTC value; BATADC is read without requesting a conversion.
-- Register offsets inside the PMIC are the MT6358-compatible map that the mt6366 node itself
-  declares (`fdt.dts:3870`) — owner sign-off needed, not DTB-verified. A failed read publishes no value.
+- Final audit fix: `fdt.dts:3868-3883` proves the gauge node, `r-fg-value` and the BATADC channel
+  name, but carries **no PMIC register numbers**. `RTC_AL_MTH 0x5aa`, `CHR_CON0 0xa88` and
+  `AUXADC_ADC0 0x1088` come only from `mtk_battery.c:48-60` and are not DTB-verified. All PMIC
+  reads are now behind the separate, **default-OFF** boot-arg `x6886_batt_pmic=1`
+  (`hakios.x6886_battery.c:19-24,229-235`); without it no register is read and no thread starts.
+  Owner sign-off is required before enabling. A failed read publishes no fabricated value.
 - Voltage is clamped at 4350 mV and sanity-checked below 2500 mV (`mtk_battery.c:256`).
 - Bounded tick count (`x6886_batt_ticks`, max `0x00ffffff`); no unbounded loop.
 - Every diagnostic goes to printf and pstore `0x480af000` via `X6886_LOG` (`[X6886-battery]`).

@@ -15,11 +15,13 @@
  *   BATADC channel name "pmic_battery_voltage"   : fdt.dts:3874-3875
  *   vbat-cv = <0x10fe> = 4350 mV (4.35 V limit)  : fdt.dts:8378, 8488
  *
- * Register offsets inside the PMIC are the MT6358-compatible map that the mt6366 node itself
- * declares (fdt.dts:3870), inherited from mtk_battery.c:48-60. They are NOT DTB-verified and are
- * marked for owner sign-off; a read that fails is never turned into a fabricated value.
+ * Register offsets inside the PMIC (RTC_AL_MTH 0x5aa, CHR_CON0 0xa88, AUXADC_ADC0 0x1088)
+ * are NOT proven by the X6886 device-dump: fdt.dts:3868-3883 proves the gauge node, the
+ * r-fg-value and the channel names, but carries no register numbers. They come only from
+ * mtk_battery.c:48-60 and need owner sign-off. All PMIC reads are behind the separate,
+ * default-OFF opt-in x6886_batt_pmic=1; without it no register is read and no thread starts.
  *
- * Opt-in: boot-arg x6886_batt=1. Bounded polling, no panic, no writes.
+ * Opt-in: x6886_batt=1 and x6886_batt_pmic=1. Bounded polling, no panic, no writes.
  */
 
 #include <sys/errno.h>
@@ -29,7 +31,7 @@
 #include <libkern/libkern.h>
 #include <mach/mach_types.h>
 #include <pexpert/pexpert.h>
-#include <sys/hakios_input.h>
+#include <sys/board/input.h>
 #include <sys/systm.h>
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
@@ -114,6 +116,7 @@ x6886_pstore_write(const char *message, unsigned length)
 #define X6886_TICKS             0x00ffffffu     /* hard bound on the polling thread */
 
 static volatile uint32_t *pwrap;
+static bool batt_pmic_optin;
 static LCK_GRP_DECLARE(batt_grp, "x6886-batt");
 static LCK_MTX_DECLARE(batt_pwrap_lock, &batt_grp);
 
@@ -167,10 +170,10 @@ batt_thread(__unused void *arg, __unused wait_result_t wr)
 
 	for (ticks = 1; ticks <= caps; ticks++) {
 		struct hakios_battery_state b = { .size = sizeof(b) };
-		bool have_soc = pmic_read(RTC_AL_MTH_SOC, &rtc) && ((rtc >> 8) & 0x7f) >= 1 &&
+		bool have_soc = batt_pmic_optin && pmic_read(RTC_AL_MTH_SOC, &rtc) && ((rtc >> 8) & 0x7f) >= 1 &&
 		    ((rtc >> 8) & 0x7f) <= 100;
-		bool have_adc = pmic_read(AUXADC_ADC0, &adc) && (adc & AUXADC_READY) != 0;
-		bool charger = pmic_read(CHR_CON0, &chr) && (chr & CHR_CON0_CHRDET) != 0;
+		bool have_adc = batt_pmic_optin && pmic_read(AUXADC_ADC0, &adc) && (adc & AUXADC_READY) != 0;
+		bool charger = batt_pmic_optin && pmic_read(CHR_CON0, &chr) && (chr & CHR_CON0_CHRDET) != 0;
 
 		if (!have_adc && !have_soc) {
 			if (ticks == 1) {
@@ -220,6 +223,17 @@ x6886_battery_init(void)
 		return 0;
 	}
 	x6886_pstore_map();
+	{
+		uint32_t pmic = 0;
+
+		(void)PE_parse_boot_argn("x6886_batt_pmic", &pmic, sizeof(pmic));
+		batt_pmic_optin = pmic != 0;
+	}
+	if (!batt_pmic_optin) {
+		X6886_LOG("PMIC reads skipped: offsets 0x5aa/0xa88/0x1088 are not DTB-proven; "
+		    "use x6886_batt_pmic=1 only after owner sign-off\n");
+		return 0;
+	}
 	pwrap = (volatile uint32_t *)ml_io_map(X6886_PWRAP_PHYS, X6886_PWRAP_SIZE);
 	if (pwrap == NULL) {
 		X6886_LOG("cannot map pwrap %#x; no battery state\n", X6886_PWRAP_PHYS);

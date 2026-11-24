@@ -114,8 +114,10 @@ static struct {
 #define X6886_CAMSV_PHYS        0x1a092000ULL   /* fdt.dts:7087-7089 */
 #define X6886_REAR_I2C_ADDR     0x2a            /* imx882: fdt.dts:4693-4697 */
 #define X6886_FRONT_I2C_ADDR    0x1a            /* gc13a0ff: fdt.dts:4851-4855 */
-#define CAM_VCAMIO_EN           0x1cb0          /* mtk_camera.c:192; owner sign-off */
-#define CAM_VCAMD_EN            0x1c9c          /* mtk_camera.c:193; owner sign-off */
+/* NOT present in the X6886 device-dump: only mtk_camera.c:192-193 names them.
+ * Default-OFF opt-in x6886_cam_pmic=1; never read, never written, by default. */
+#define CAM_VCAMIO_EN           0x1cb0
+#define CAM_VCAMD_EN            0x1c9c
 #define PWRAP_WACS2_CMD         0xc20           /* mtk_camera.c:127 */
 #define PWRAP_WACS2_RDATA       0xc24           /* mtk_camera.c:128 */
 #define PWRAP_WACS2_VLDCLR      0xc28           /* mtk_camera.c:129 */
@@ -123,6 +125,7 @@ static struct {
 #define PWRAP_SPINS             200000u         /* mtk_camera.c:136 */
 
 static uint64_t cam_bad_pa;
+static bool cam_pmic_optin;
 static LCK_GRP_DECLARE(cam_grp, "x6886-cam");
 static LCK_MTX_DECLARE(cam_pwrap_lock, &cam_grp);
 
@@ -208,15 +211,21 @@ x6886_cam_probe(void)
 		error = EBUSY;
 		goto out;
 	}
-	/* read-only rail check; the reference's pwrap writes are not ported */
-	if (!pwrap_read(CAM_VCAMIO_EN, &vcamio) || !pwrap_read(CAM_VCAMD_EN, &vcamd)) {
-		X6886_LOG("MT6366 camera rails do not answer (VCAMIO %#x, VCAMD %#x); no sensor is touched\n",
-		    vcamio, vcamd);
-		error = EIO;
-		goto out;
+	/* The rail offsets are NOT proven by fdt.dts / mt6366 nodes. They are read only
+	 * with x6886_cam_pmic=1, and are never written in either mode. */
+	if (cam_pmic_optin) {
+		if (!pwrap_read(CAM_VCAMIO_EN, &vcamio) || !pwrap_read(CAM_VCAMD_EN, &vcamd)) {
+			X6886_LOG("unproven rail offsets did not answer (VCAMIO %#x, VCAMD %#x); no sensor is touched\n",
+			    vcamio, vcamd);
+			error = EIO;
+			goto out;
+		}
+		X6886_LOG("VCAMIO %#x (bit0 %s), VCAMD %#x (bit0 %s); offsets NOT DTB-proven, owner sign-off needed\n",
+		    vcamio, (vcamio & 1u) ? "on" : "off", vcamd, (vcamd & 1u) ? "on" : "off");
+	} else {
+		X6886_LOG("PMIC rail reads skipped: 0x1cb0/0x1c9c are not in the X6886 device-dump; "
+		    "use x6886_cam_pmic=1 only after owner sign-off\n");
 	}
-	X6886_LOG("VCAMIO %#x (bit0 %s), VCAMD %#x (bit0 %s); MT6358-compatible offsets, owner sign-off needed\n",
-	    vcamio, (vcamio & 1u) ? "on" : "off", vcamd, (vcamd & 1u) ? "on" : "off");
 
 	X6886_LOG("rear imx882 i2c2-0x%02x, front gc13a0ff i2c4-0x%02x; no vendor register table exists, "
 	    "so sensor init / CSI stream / CAMSV capture are NOT performed\n",
@@ -249,6 +258,12 @@ x6886_camera_init(void)
 
 	if (!PE_parse_boot_argn("x6886_cam", &on, sizeof(on)) || on == 0) {
 		return 0;
+	}
+	{
+		uint32_t pmic = 0;
+
+		(void)PE_parse_boot_argn("x6886_cam_pmic", &pmic, sizeof(pmic));
+		cam_pmic_optin = pmic != 0;
 	}
 	x6886_pstore_map();
 	error = x6886_cam_probe();

@@ -18,10 +18,18 @@ Written: `kernel/x6886/hakios.x6886_bt.c`, this manifest, and four raw firmware 
   permitted osexgang sources. No fake `mtk_connsys_bt_send` / power-on / WMT stub was written:
   the symbol is left `extern` at `hakios.x6886_bt.c:29`.
 
-## Boot safety
-- Opt-in `x6886_bt=1` **and** `x6886_bt_ready_set(true)` from the CONNSYS owner; without both the
-  nexus is not registered. Bounded log counter (200 lines, `mtk_btsk.c:37`) and bounded 16 KB RX
-  queue (`:25-27`). Clean error returns on every provider step; no panic, no guessed register.
+## Boot safety / the final audit fix
+- **Default OFF, transport only.** `x6886_bt_init()` returns 0 without touching anything unless
+  `x6886_bt=1` is given; with the boot-arg on but no registered backend it returns a clean `ENXIO`.
+- The missing `mtk_connsys_bt_send` extern was **removed**: TX now goes through the function
+  pointer supplied by `x6886_bt_backend_register(fn)` from the CONNSYS owner
+  (`hakios.x6886_bt.c:36,224,420`). If no backend is registered, TX packets are dropped with a log.
+  There is **no fake stub** and no power-on / WMT / STP implementation in this file.
+- `x6886_bt_ready_set(true)` only reports controller readiness; it does not satisfy the backend
+  requirement. Bounded log counter (200 lines, `mtk_btsk.c:37`) and bounded 16 KB RX queue
+  (`:25-27`). Clean error returns on every provider step; no panic, no guessed register.
+- **Claim:** the H4/Skywalk transport is real; a working Bluetooth controller is NOT claimed
+  because no real MTK backend exists in the permitted sources.
 - All diagnostics go to printf and pstore `0x480af000` via `X6886_LOG` (`[X6886-bt]`).
 
 ## Raw firmware copied (data only)

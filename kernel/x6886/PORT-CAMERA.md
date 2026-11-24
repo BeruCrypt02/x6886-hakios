@@ -33,8 +33,11 @@ validates the hardware and reports sensor identity; it does not stream, capture 
 ## Boot safety and gaps
 - `x6886_cam=1` opt-in; any unmapped window or unready pwrap is a clean error return, no panic.
 - Every MMIO access goes through the bounded `cam_reg()` window check (`mtk_camera.c:88-99`).
-- Only pwrap **reads** of VCAMIO/VCAMD enable registers; the reference's rail writes
-  (`mtk_camera.c:198-212`) are not ported. MT6358-compatible PMIC offsets need owner sign-off.
+- Final audit fix: `CAM_VCAMIO_EN 0x1cb0` / `CAM_VCAMD_EN 0x1c9c` are **not present in the X6886
+  device-dump** (only named in `mtk_camera.c:192-193`). These reads are now behind the separate,
+  **default-OFF** boot-arg `x6886_cam_pmic=1` (`hakios.x6886_camera.c:117-118,216-228,265-266`).
+  By default no rail register is read, and no PMIC register is ever written in either mode.
+  Owner sign-off is still required before anyone enables the opt-in.
 - No sensor init, no CSI lane setup, no CAMSV DMA, no frame buffer: those need the missing vendor
   tables. Reported on every probe line rather than papered over with a stub.
 - Every diagnostic goes to printf and pstore `0x480af000` via `X6886_LOG` (`[X6886-camera]`).

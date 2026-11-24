@@ -5,20 +5,22 @@
  * syncs its rings and waits for them on a kqueue. On a phone the other end is Apple's IOSkywalkFamily, a kernel pipe
  * (NEXUS_TYPE_KERNEL_PIPE) whose "driver" is the Bluetooth UART's; here the other end is the MediaTek controller behind
  * CONNSYS, and this is its provider, made by bsd/skywalk/nexus/kpipe/nx_kpipe_loopback.c's pattern:
- *   user TX ring  -> sync_tx -> the H4 bytes of each packet go to the controller (mtk_connsys_bt_send)
+ *   user TX ring  -> sync_tx -> the H4 bytes of each packet go to the registered CONNSYS backend
  *   controller    -> x6886_bt_deliver -> a queue -> sync_rx puts them in the user's RX ring, one H4 packet a slot
  * Everything the user does to the channel is said (hakios_host_keep_add), the first few times.
  *
  * X6886 adaptation: the H4/Skywalk transport is real (mtk_btsk.c), but the controller
- * backend is NOT sourced here: mtk_connsys_bt_send() lives in mtk_connsys.c and the
+ * backend is NOT sourced here: the H4 send op lives in mtk_connsys.c and the
  * power-on / WMT function-on / STP send-receive ops are a table the osexgang skeleton
  * mtk_bt_skel.c leaves empty (.name = NULL at mtk_bt_skel.c:105; "has not run on a
  * phone" at :20). No backend is invented in this file.
  *
- * Boot safety: opt-in x6886_bt=1 AND x6886_bt_ready_set(true) from the CONNSYS owner.
- * Without that call nothing is registered. Bounded logging (200 lines) and a bounded
- * 16 KB RX queue; no panic, no guessed register.
+ * Boot safety: default OFF. x6886_bt_init() returns ENXIO until the CONNSYS owner
+ * registers a real H4 send backend with x6886_bt_backend_register(); no power-on,
+ * WMT function-on or STP code is invented here. Bounded logging (200 lines) and a
+ * bounded 16 KB RX queue; no panic, no guessed register.
  */
+#include <sys/errno.h>
 #include <kern/locks.h>
 #include <kern/kalloc.h>
 #include <pexpert/pexpert.h>
@@ -27,8 +29,14 @@
 #include <sys/random.h>
 #include <skywalk/os_skywalk_private.h>
 
-extern void mtk_connsys_bt_send(const uint8_t *bytes, unsigned length);
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+
+/* No backend is built in. The CONNSYS owner must register a real H4 send function. */
+typedef void (*x6886_bt_send_fn)(const uint8_t *bytes, unsigned length);
+static x6886_bt_send_fn x6886_bt_send_backend;
+static bool x6886_bt_ready_gate;
+
+void x6886_bt_backend_register(x6886_bt_send_fn send);
 
 /* ---- ramoops pstore mirror (boot-audit GATE 4) ---- */
 #define X6886_PSTORE_PHYS       0x480af000ULL
@@ -36,7 +44,6 @@ extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 #define X6886_PSTORE_SIG        0x43474244u
 
 static vm_offset_t x6886_pstore_va;
-static bool x6886_bt_ready_gate;
 static LCK_GRP_DECLARE(btsk_pstore_grp, "x6886-bt-pstore");
 static LCK_SPIN_DECLARE(btsk_pstore_lock, &btsk_pstore_grp);
 
@@ -214,7 +221,11 @@ btsk_sync_tx(__unused kern_nexus_provider_t nxprov, __unused kern_nexus_t nexus,
 						    length > 3 ? base[offset + 3] : 0, length > 4 ? base[offset + 4] : 0, length > 5 ? base[offset + 5] : 0,
 						    length > 6 ? base[offset + 6] : 0, length > 7 ? base[offset + 7] : 0);
 					}
-					mtk_connsys_bt_send(base + offset, length);
+					if (x6886_bt_send_backend != NULL) {
+						x6886_bt_send_backend(base + offset, length);
+					} else {
+						SAY("TX dropped: no H4 backend registered");
+					}
 				}
 			}
 			(void)kern_channel_slot_detach_packet(ring, slot, ph);
@@ -316,7 +327,7 @@ x6886_bt_uuid(uuid_t out)
 	return true;
 }
 
-void
+int
 x6886_bt_init(void)
 {
 	uint32_t on = 0;
@@ -351,24 +362,27 @@ x6886_bt_init(void)
 	};
 
 	x6886_pstore_map();
-	if (!PE_parse_boot_argn("x6886_bt", &on, sizeof(on)) || on == 0 || !x6886_bt_ready_gate) {
-		SAY("not started: need x6886_bt=1 and x6886_bt_ready_set(true) from the CONNSYS owner");
-		return;
+	if (!PE_parse_boot_argn("x6886_bt", &on, sizeof(on)) || on == 0) {
+		return 0;               /* default OFF: nothing is registered */
+	}
+	if (!x6886_bt_ready_gate || x6886_bt_send_backend == NULL) {
+		SAY("ENXIO: no registered H4 backend; transport-only, Bluetooth is not available");
+		return ENXIO;
 	}
 	read_random(&btsk_nx_ctx, sizeof(btsk_nx_ctx));
 	error = kern_nexus_register_domain_provider(NEXUS_TYPE_KERNEL_PIPE, (const uint8_t *)"hakios_bt", &dom_init, sizeof(dom_init),
 	    &btsk_dom_uuid);
 	if (error != 0) {
 		X6886_LOG("domain provider: %d", error);
-		return;
+		return error;
 	}
 	if ((error = kern_nexus_controller_create(&btsk_ncd)) != 0) {
 		X6886_LOG("controller: %d", error);
-		return;
+		return error;
 	}
 	if ((error = kern_nexus_attr_create(&nxa)) != 0) {
 		X6886_LOG("attr: %d", error);
-		return;
+		return error;
 	}
 	(void)kern_nexus_attr_set(nxa, NEXUS_ATTR_ANONYMOUS, 1);
 	(void)kern_nexus_attr_set(nxa, NEXUS_ATTR_TX_RINGS, 1);
@@ -381,12 +395,12 @@ x6886_bt_init(void)
 	kern_nexus_attr_destroy(nxa);
 	if (error != 0) {
 		X6886_LOG("provider: %d", error);
-		return;
+		return error;
 	}
 	error = kern_nexus_controller_alloc_provider_instance(btsk_ncd, btsk_prov_uuid, (const void *)btsk_nx_ctx, NULL, &btsk_nx_uuid, &nx_init);
 	if (error != 0) {
 		X6886_LOG("instance: %d", error);
-		return;
+		return error;
 	}
 	lck_mtx_lock(&btsk_lock);
 	btsk_ready = true;
@@ -397,6 +411,17 @@ x6886_bt_init(void)
 		uuid_unparse_upper(btsk_nx_uuid, text);
 		X6886_LOG("the Skywalk kernel pipe %s is up", text);
 	}
+	return 0;
+}
+
+
+/* The CONNSYS owner supplies the only path to its H4 controller. NULL unregisters it. */
+void
+x6886_bt_backend_register(x6886_bt_send_fn send)
+{
+	x6886_pstore_map();
+	x6886_bt_send_backend = send;
+	SAY("H4 backend %s", send != NULL ? "registered" : "removed");
 }
 
 /*
@@ -408,6 +433,6 @@ x6886_bt_ready_set(bool ready)
 {
 	x6886_pstore_map();
 	x6886_bt_ready_gate = ready;
-	SAY("controller backend %s (no send/receive implementation is built here)",
+	SAY("controller %s; a send backend must still be registered for TX",
 	    ready ? "reported ready by the CONNSYS owner" : "not ready");
 }
