@@ -77,6 +77,14 @@ current count is 250 mV / 65536 over a 5 mOhm sense resistor, about 0.763 mA. X6
 declares `r-fg-value = <0x32>` (50 mOhm) and `fg-meter-resistance = <0x64>` (100). The
 5 mOhm constant must not be copied into X6886 code.
 
+A search across `refs/` found no second independent MT6358 register map. The other hits
+are `refs/hakios-mtk/xnu/files/bsd/dev/redwood_mtkbatt.c` from the same X6826B driver
+family, plus `refs/oosexgang-xnu27/tests/pwrap_model.h` and
+`tests/battery_driver_test.c`. Those two form a WACS2 PMIC model with a
+`HAKIOS_MMIO_TEST` seam and fault injection for stuck wrapper or unfinished ADC
+conversion. Reuse that harness for offline gauge logic tests. It models WACS2, not the
+SWINF interface expected on MT6789.
+
 ### X6886 gauge settings from FDT
 
 | Property | Raw | Decimal / meaning |
