@@ -7,7 +7,7 @@ modem or NVRAM file was touched.
 Final source path (main repo, git-tracked): `kernel/x6886/hakios.x6886_mali.c`
 Pre-path-change copy (also written, for the refs tree integrator):
 `refs/xnu-12377-hakios/bsd/dev/hakios.x6886_mali.c`. Both files are byte-identical
-(sha256 `fb34b7831ed142763d1e46f94fadc10ea89f3316eb53760b405ba6d038c04e30`).
+(sha256 `e5cacadd5e96f93b226ec9f09952c533ef436e053a4c59cbc076450554df8a61`).
 There is no separate header; the driver is self-contained.
 
 ## 1. Source proof
@@ -67,6 +67,13 @@ not be reported as DTB-verified.
 
 ### 2b. Internal offsets — X676C REF, OWNER SIGN-OFF NEEDED (not DTB-verified)
 
+None of the offsets below were proved in this device's DTB/iomem. A read of the
+block base and status registers is harmless, but **every write** to the SPM
+PWR_CON, topckgen, infracfg and mfgcfg offsets is gated behind the boot-arg
+`mali_hwctl=1`, which defaults to **0**. With the default the driver performs a
+read-only survey and returns `ENXIO` if the firmware did not already power and
+ungate the GPU; no unproven gate is written on a normal boot.
+
 | Constant in driver | Value | Source of the offset (not DTB) | Reference logic kept from |
 |---|---|---|---|
 | SPM PWR_CON `0x308/0x30c/0x310/0x314`, status bits `0x4/0x8/0x10/0x20` | as listed | X676C wiki `:78-83` + patch 0182 (**owner sign-off needed**) | `mtk_mali.c:272-301` |
@@ -104,8 +111,10 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
 
 ## 5. Driver behaviour
 
-- `x6886_mali_init()` is a no-op unless boot-arg `mali=1`; `mali_fastmap=0` uses
-  cached page-table walks, `mali_trace=1` logs each completed job.
+- `x6886_mali_init()` is a no-op unless boot-arg `mali=1`. `mali_hwctl=1` is the
+  opt-in that permits writes to the DTB-unproven clock/power gates (default 0 =
+  read-only survey + `ENXIO` when the GPU is not already powered). `mali_fastmap=0`
+  uses cached page-table walks, `mali_trace=1` logs each completed job.
 - Bring-up is synchronous and returns `0` or a negative errno. Each failed stage
   (clock, SPM domain, bg3d gate, GPU_ID, reset, core power, job) logs its own
   line and stops; no write follows a failed read.
@@ -120,14 +129,18 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
   MMU and register-backed API. `x6886_mali_stop()` masks IRQs and unmaps.
 - No safe-idle stubs: there is no function that returns success without hardware
   work, no assumed GPU ID and no fake register value.
-- **Log mirror (GATE 4):** all lines now start with `[X6886-mali]`. `mali_log()`
-  sends every diagnostic status and every failure register dump to both the
-  normal `printf` log and the live ramoops console at physical `0x480af000`
-  (`docs/HANDOFF-IOS27-BOOT.md:38`, zone size `0x40000`). Writer header is
-  `persistent_ram_buffer { sig=0x43474244, start, size, data at +12 }`; `start`
-  is the next write offset and `size` is valid bytes, matching
-  `darwin16/shim/plog.c:13-58` and `logview.c:1-10,104-110`. An absent/invalid
-  zone disables only the mirror, never the normal log.
+- **Log mirror (GATE 4, shared convention):** all lines start with
+  `[X6886-mali]`. `mali_log()` sends every diagnostic status and every failure
+  register dump to both `printf` and the ramoops console at `0x480af000`.
+  The header is exactly the one used by the other ten X6886 drivers: sig
+  `0x43474244` at `+0`, write cursor at `+4`, **ring capacity at `+8`** (never a
+  valid-byte count), data at `+12`; window size `0x1000`, capacity `0x1000-12`,
+  `size >= 16` required (`audio.c:38-78`, `battery.c:38-81`, `camera.c:40-83`,
+  `keys.c:38-81`, `wifi.c:34-81`, `bt.c:33-77`, `charger.c:64-108`,
+  `touch.c:95-194`, `usb.c:212-248`). A **valid header is never rewritten**, so
+  a mali-first boot preserves every other driver's log; a fresh/invalid zone is
+  initialised exactly as `touch.c:175-181` does. An unmappable zone disables
+  only the mirror, never the normal log.
 - **Bounded waits (GATE 3):** the worker loop, its empty-queue sleep and the
   full-queue sleep use `lck_mtx_sleep_deadline()` with a fresh 30 s deadline and
   an explicit `mali_worker_stop` flag set by `x6886_mali_stop()`. The sleep
@@ -162,15 +175,20 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
 7. **Internal offsets need owner sign-off (GATE 3)** — the SPM PWR_CON/status,
    topckgen CLK_CFG offsets, infracfg bus-protection offsets, mfgcfg gate/CG
    offsets and the JM/MMU register map are X676C reference values from
-   section 2b, **not** verified in this device's DTB. Beru must sign off on
-   them before boot; they are not presented as DTB-proven.
+   section 2b, **not** verified in this device's DTB. They are not presented as
+   DTB-proven. Chosen fix: every write to those gates is behind `mali_hwctl=1`
+   (default 0), so a normal boot never writes an unproven gate. Beru must still
+   sign off before enabling `mali_hwctl`.
 
 ## 7. Verification performed (offline)
 
-- `wc -l` (1382 lines), balanced braces check, no NUL bytes, grep for stale
+- `wc -l` (1423 lines), balanced braces check, no NUL bytes, grep for stale
   source-only symbols (`gMali*`, `HakiosMaliStart`, `HAKIOS_HAS_GPU_MALI_G52`)
   returned none; `mali_trace` parse target corrected to `mali_trace_queue`.
 - All addresses/OPPs/IRQs above were read directly from the named dump lines;
   the OPP Hz/µV values were machine-extracted from `fdt.dts` and copied exactly.
+- Final audit fixes checked by grep: no `printf("mali:` remains; the pstore
+  writer has no `size = valid bytes` state and only touches `+4` on a valid
+  header; every `wr(topckgen/.../mfgcfg/spm)` sits inside a `mali_hwctl` branch.
 - Both final paths compared with `sha256sum` and found identical.
 - No changes outside `kernel/x6886/` and the duplicate driver under `refs/`.

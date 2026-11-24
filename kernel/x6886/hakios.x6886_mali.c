@@ -23,9 +23,11 @@
  * different, non-zero ID is accepted. An unpowered bank (0 or ~0) is an error.
  *
  * Boot-arg mali=1 enables the driver (nothing is touched without it).
+ *   mali_hwctl=1     allow writes to the X676C-sourced, DTB-unproven clock and
+ *                    power gates; with the default 0 the driver only reads
+ *                    their status and returns ENXIO if they are not already on
  *   mali_fastmap=0   cached page-table walks instead of the default non-cached
  *   mali_trace=1     one line per completed job
- *   mali=2           also leaves the GPU powered for the next driver
  *
  * Every failure is an error return with a line saying which stage stopped.
  * There is no panic, no fake GPU_ID and no guessed regulator voltage.
@@ -41,6 +43,7 @@
 #include <sys/systm.h>
 #include <sys/sysctl.h>
 #include <vm/vm_kern.h>
+#include <vm/vm_kern_xnu.h>     /* kmem_alloc()/KMA_* for XNU_KERNEL_PRIVATE builds */
 #include <stdarg.h>
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
@@ -54,67 +57,65 @@ SYSCTL_DECL(_kern_hakios);
 
 static LCK_GRP_DECLARE(mali_lock_group, "x6886-mali");
 
-/* ---- ramoops console mirror ----------------------------------------------- */
+/* ---- ramoops console mirror: SHARED X6886 convention ----------------------- */
 
-/* Live X6886 pstore console zone, from docs/HANDOFF-IOS27-BOOT.md:38 and
- * docs/DRIVER-MATRIX.md:7 (size 0x40000). Header is Linux's
- * struct persistent_ram_buffer { sig, start, size, data[] } with data at +12;
- * the local convention is start = next write offset, size = valid bytes
- * (darwin16/shim/plog.c:13-58, logview.c:1-10,104-110). */
-#define X6886_PSTORE_PHYS       0x480af000u
-#define X6886_PSTORE_SIZE       0x40000u
-#define PRZ_SIG                 0x43474244u     /* "DBGC" */
-#define PRZ_CAP                 (X6886_PSTORE_SIZE - 12u)
+/* Exact same contract as the other X6886 drivers (audio.c:38-78, battery.c:38-81,
+ * camera.c:40-83, keys.c:38-81, wifi.c:34-81, bt.c:33-77, charger.c:64-108,
+ * touch.c:95-194, usb.c:212-248): sig at +0, write cursor at +4, RING CAPACITY
+ * at +8 (never a valid-byte count), data at +12.  size must be >= 16 and <=
+ * window-12.  A valid header from another driver is never re-initialised, so
+ * a mali-first boot cannot drop the other boot logs. */
+#define X6886_PSTORE_PHYS       0x480af000ULL
+#define X6886_PSTORE_SIZE       0x1000u
+#define X6886_PSTORE_SIG        0x43474244u
+#define X6886_PSTORE_HEAD       12u
 
-static vm_offset_t prz;
-static uint32_t prz_pos, prz_valid;
-static LCK_MTX_DECLARE(prz_lock, &mali_lock_group);
+static vm_offset_t x6886_pstore_va;
+static LCK_GRP_DECLARE(x6886_mali_pstore_grp, "x6886-mali-pstore");
+static LCK_SPIN_DECLARE(x6886_mali_pstore_lock, &x6886_mali_pstore_grp);
 
 static void
-x6886_mali_pstore_init(void)
+x6886_mali_pstore_map(void)
 {
-	volatile uint32_t *head;
-
-	if (prz != 0) {
-		return;
+	if (x6886_pstore_va == 0) {
+		x6886_pstore_va = ml_io_map(X6886_PSTORE_PHYS, X6886_PSTORE_SIZE);
 	}
-	prz = ml_io_map(X6886_PSTORE_PHYS, X6886_PSTORE_SIZE);
-	if (prz == 0) {
-		return;                         /* normal log still works */
-	}
-	head = (volatile uint32_t *)prz;
-	if (head[0] != PRZ_SIG) {
-		head[0] = PRZ_SIG;
-		head[1] = 0;
-		head[2] = 0;
-	}
-	prz_pos = head[1] < PRZ_CAP ? head[1] : 0;
-	prz_valid = head[2] <= PRZ_CAP ? head[2] : 0;
-	__asm__ volatile ("dsb sy");
 }
 
 static void
-x6886_mali_pstore_put(char c)
+x6886_mali_pstore_write(const char *message, unsigned length)
 {
-	volatile uint32_t *head;
-	volatile uint8_t *data;
+	volatile uint8_t *base;
+	uint32_t sig, start, size;
+	unsigned n;
 
-	if (prz == 0) {
+	if (x6886_pstore_va == 0 || message == NULL || length == 0) {
 		return;
 	}
-	head = (volatile uint32_t *)prz;
-	data = (volatile uint8_t *)(prz + 12);
-	if (prz_pos >= PRZ_CAP) {
-		prz_pos = 0;
+	lck_spin_lock(&x6886_mali_pstore_lock);
+	base = (volatile uint8_t *)x6886_pstore_va;
+	sig = *(volatile uint32_t *)(base + 0);
+	start = *(volatile uint32_t *)(base + 4);
+	size = *(volatile uint32_t *)(base + 8);
+	if (sig != X6886_PSTORE_SIG || size < 16 || size > X6886_PSTORE_SIZE - X6886_PSTORE_HEAD) {
+		/* Fresh zone: create the shared header exactly as touch.c:175-181 does.
+		 * A valid header is left untouched: other drivers keep their logs. */
+		*(volatile uint32_t *)(base + 0) = X6886_PSTORE_SIG;
+		*(volatile uint32_t *)(base + 4) = 0;
+		*(volatile uint32_t *)(base + 8) = X6886_PSTORE_SIZE - X6886_PSTORE_HEAD;
+		start = 0;
+		size = X6886_PSTORE_SIZE - X6886_PSTORE_HEAD;
 	}
-	data[prz_pos] = (uint8_t)c;
-	prz_pos = (prz_pos + 1) % PRZ_CAP;
-	if (prz_valid < PRZ_CAP) {
-		prz_valid++;
+	if (start >= size) {
+		start = 0;
 	}
-	head[1] = prz_pos;                  /* next write offset */
-	head[2] = prz_valid;                /* valid bytes; wraps once full */
-	__asm__ volatile ("dsb sy");
+	n = length < size - 2 ? length : size - 2;
+	for (unsigned i = 0; i < n; i++) {
+		base[X6886_PSTORE_HEAD + ((start + i) % size)] = (uint8_t)message[i];
+	}
+	base[X6886_PSTORE_HEAD + ((start + n) % size)] = '\n';
+	*(volatile uint32_t *)(base + 4) = (start + n + 1) % size;
+	lck_spin_unlock(&x6886_mali_pstore_lock);
 }
 
 /* Every diagnostic and every failure dump goes to the normal log AND pstore. */
@@ -122,23 +123,17 @@ static void
 mali_log(const char *format, ...)
 {
 	char line[512];
-	size_t length;
+	int length;
 	va_list ap;
 
-	va_start(ap, format);
-	vsnprintf(line, sizeof(line), format, ap);
-	va_end(ap);
-	length = strlen(line);
-	printf("[X6886-mali] %s\n", line);
-	if (prz == 0) {
-		return;
+	length = snprintf(line, sizeof(line), "[X6886-mali] ");
+	if (length > 0 && length < (int)sizeof(line)) {
+		va_start(ap, format);
+		vsnprintf(line + length, sizeof(line) - (size_t)length, format, ap);
+		va_end(ap);
 	}
-	lck_mtx_lock(&prz_lock);
-	for (size_t i = 0; i < length; i++) {
-		x6886_mali_pstore_put(line[i]);
-	}
-	x6886_mali_pstore_put('\n');
-	lck_mtx_unlock(&prz_lock);
+	printf("%s\n", line);
+	x6886_mali_pstore_write(line, (unsigned)strlen(line));
 }
 
 /* ---- physical blocks ------------------------------------------------------ */
@@ -278,6 +273,25 @@ mfg_bus_protection_release(void)
 	delay(20);
 }
 
+/* Read-only check used when mali_hwctl=0: prove the firmware actually left the
+ * MFG domains on before touching any GPU register. No writes are performed. */
+static bool
+domains_ready_survey(void)
+{
+	uint32_t first = rd(spm, SPM_PWR_STATUS), second = rd(spm, SPM_PWR_STATUS_2ND);
+
+	for (unsigned i = 0; i < 4; i++) {
+		uint32_t bit = domains[i].status;
+
+		if ((first & bit) != bit || (second & bit) != bit) {
+			mali_log("power domain %s is off (status %#x/%#x); mali_hwctl=1 needed\n",
+			    domains[i].name, first, second);
+			return false;
+		}
+	}
+	return true;
+}
+
 /* ---- GPU registers (MaliValhallHw.h:9-154, cross-checked to mtk_mali.c:303-343) */
 
 #define GPU_ID                  0x000u
@@ -405,6 +419,10 @@ mfg_bus_protection_release(void)
 
 static int mali_fastmap = 1;
 static uint32_t mali_trace_queue;
+/* Unproven clock/power gate writes stay OFF by default. Only mali_hwctl=1
+ * allows writing the X676C-sourced topckgen/infracfg/mfgcfg/SPM PWR_CON
+ * registers; with 0 the driver does a read-only survey and returns ENXIO. */
+static uint32_t mali_hwctl;
 
 static const char *
 gpu_name(uint32_t id)
@@ -675,10 +693,15 @@ x6886_mali_up(void)
 		goto fail;
 	}
 
-	/* 1: MFG reference clock. This leaves the firmware's parent selection
-	 * alone, ungates the mux and waits for its stable bit. */
-	wr(topckgen, 0x58u, (1u << 18) | (1u << 7));
-	wr(topckgen, 0x04u, 1u << 3);
+	/* 1: MFG reference clock. The two writes below are X676C-sourced and
+	 * unproven on X6886: they happen only with mali_hwctl=1. The status read
+	 * and the bounded poll are always safe. */
+	if (mali_hwctl) {
+		wr(topckgen, 0x58u, (1u << 18) | (1u << 7));
+		wr(topckgen, 0x04u, 1u << 3);
+	} else {
+		mali_log("mali_hwctl=0: read-only survey, no unproven clock writes\n");
+	}
 	ck = 0;
 	for (unsigned i = 0; i < 1000; i++) {
 		ck = rd(topckgen, 0x50u);
@@ -694,18 +717,23 @@ x6886_mali_up(void)
 	}
 	reached = 1;
 
-	/* 2: the four MFG power domains. A failed status poll is an error return,
-	 * not a continued sequence against an unpowered register bank. */
-	for (unsigned i = 0; i < 4; i++) {
-		if (!domain_on(i)) {
-			mali_log("power domain %s did not come up (status %#x/%#x)\n",
-			    domains[i].name, rd(spm, SPM_PWR_STATUS), rd(spm, SPM_PWR_STATUS_2ND));
-			error = ENXIO;
-			goto fail;
+	/* 2: the four MFG power domains. With mali_hwctl=0 only their status is
+	 * read; with 1 the X676C MTCMOS sequence and bus protection are written. */
+	if (mali_hwctl) {
+		for (unsigned i = 0; i < 4; i++) {
+			if (!domain_on(i)) {
+				mali_log("power domain %s did not come up (status %#x/%#x)\n",
+				    domains[i].name, rd(spm, SPM_PWR_STATUS), rd(spm, SPM_PWR_STATUS_2ND));
+				error = ENXIO;
+				goto fail;
+			}
+			if (i == 1) {
+				mfg_bus_protection_release();
+			}
 		}
-		if (i == 1) {
-			mfg_bus_protection_release();
-		}
+	} else if (!domains_ready_survey()) {
+		error = ENXIO;
+		goto fail;
 	}
 	reached = 2;
 
@@ -717,18 +745,30 @@ x6886_mali_up(void)
 		error = ENXIO;
 		goto fail;
 	}
-	wr(mfgcfg, 0x08u, 1u);
-	if (!wait_for(mfgcfg, 0x00u, 1, 0, 50)) {
-		mali_log("bg3d clock gate did not open (status %#x)\n", rd(mfgcfg, 0x00u));
-		error = ENXIO;
-		goto fail;
+	/* 3: the block's own gate and external CG. All offsets here are X676C
+	 * reference values: writes only with mali_hwctl=1, otherwise read-only. */
+	if (mali_hwctl) {
+		wr(mfgcfg, 0x08u, 1u);
+		if (!wait_for(mfgcfg, 0x00u, 1, 0, 50)) {
+			mali_log("bg3d clock gate did not open (status %#x)\n", rd(mfgcfg, 0x00u));
+			error = ENXIO;
+			goto fail;
+		}
+		wr(mfgcfg, 0x20u, rd(mfgcfg, 0x20u) | 0x03c00000u);
+		wr(mfgcfg, 0xb0u, rd(mfgcfg, 0xb0u) & ~0x0600u);
+		wr(mfgcfg, 0xb4u, rd(mfgcfg, 0xb4u) | 0x0010u);
+		wr(mfgcfg, 0xb0u, (rd(mfgcfg, 0xb0u) & ~0x00080100u) | 0x80000u);
+		wr(mfgcfg, 0x24u, rd(mfgcfg, 0x24u) | 1u);
+		wr(mfgcfg, 0x0f60u, rd(mfgcfg, 0x0f60u) | 1u);
+	} else {
+		uint32_t gate = rd(mfgcfg, 0x00u);
+
+		if (gate & 1u) {
+			mali_log("bg3d clock gate is closed (status %#x); mali_hwctl=1 needed\n", gate);
+			error = ENXIO;
+			goto fail;
+		}
 	}
-	wr(mfgcfg, 0x20u, rd(mfgcfg, 0x20u) | 0x03c00000u);
-	wr(mfgcfg, 0xb0u, rd(mfgcfg, 0xb0u) & ~0x0600u);
-	wr(mfgcfg, 0xb4u, rd(mfgcfg, 0xb4u) | 0x0010u);
-	wr(mfgcfg, 0xb0u, (rd(mfgcfg, 0xb0u) & ~0x00080100u) | 0x80000u);
-	wr(mfgcfg, 0x24u, rd(mfgcfg, 0x24u) | 1u);
-	wr(mfgcfg, 0x0f60u, rd(mfgcfg, 0x0f60u) | 1u);
 	reached = 3;
 
 	/* 4: the GPU itself. The ID is detected, never required to be a value
@@ -1331,8 +1371,10 @@ x6886_mali_init(void)
 	uint32_t on = 0;
 	int error;
 
-	x6886_mali_pstore_init();
+	x6886_mali_pstore_map();
 	mali_worker_stop = false;
+	mali_hwctl = 0;                 /* unproven gate writes are OFF by default */
+	(void)PE_parse_boot_argn("mali_hwctl", &mali_hwctl, sizeof(mali_hwctl));
 	(void)PE_parse_boot_argn("mali_fastmap", &mali_fastmap, sizeof(mali_fastmap));
 	(void)PE_parse_boot_argn("mali_trace", &mali_trace_queue, sizeof(mali_trace_queue));
 	if (!PE_parse_boot_argn("mali", &on, sizeof(on)) || on == 0) {
