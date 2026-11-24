@@ -26,7 +26,7 @@ import gzip
 import struct
 import sys
 
-CHAIN_OFFSET = 0x40000
+CHAIN_OFFSET = 0x80000   # keep past mtkloader's __bss_end (0x4f000 past _start)
 BOOT_PARTITION = 64 << 20          # X6886 boot_a / boot_b are 64 MiB, not 32
 PAGE_SIZE = 4096                   # device constant; not stored in a v4 header
 V4_HEADER_VERSION = 4

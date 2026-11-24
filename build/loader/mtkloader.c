@@ -185,7 +185,12 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
 #define XNU_BOOT_ARGS       "debug=0x8 serial=3 " XNU_ROOT_ARG " " XNU_EXTRA_ARGS " loader_return_after=" XNU_RETURN_AFTER
 #endif
 
-#define CHAIN_OFFSET        0x40000u
+/* The loader's text + data + BSS reach 0x4005f000, i.e. 0x4f000 past _start.
+ * A 0x40000 gap let primary_entry's BSS clear eat the first 0xf000 of the
+ * embedded Android Image. Move that Image to 0x80000, which leaves 0x31000
+ * between __bss_end and it. chainboot-x6886.py carries the same offset; its
+ * res3 (the XNUP payload offset) follows from it. */
+#define CHAIN_OFFSET        0x80000u
 #define KERNEL_PA           HAKIOS_LOADER_KERNEL_LOAD
 #define CHAIN_STUB_PA       HAKIOS_LOADER_CHAIN_STUB
 
@@ -317,6 +322,16 @@ static inline uint64_t sym_xnu_return_stub(void)
 	uint64_t v;
 
 	__asm__ volatile("adrp %0, xnu_return_stub\n\tadd %0, %0, :lo12:xnu_return_stub" : "=r"(v));
+	return v;
+}
+/* PC-relative like the two above. Taking the address of the entry in C puts
+ * an R_AARCH64_ABS64 into .got; PSCI needs the runtime address, not a link
+ * constant, so read it from the current PC instead. */
+static inline uint64_t sym_block_server_entry(void)
+{
+	uint64_t v;
+
+	__asm__ volatile("adrp %0, block_server_entry\n\tadd %0, %0, :lo12:block_server_entry" : "=r"(v));
 	return v;
 }
 extern void jump_to_kernel(uint64_t entry_pa, uint64_t boot_args_pa);
@@ -2496,7 +2511,7 @@ static void block_server_start(void)
 		return;
 	}
 	ufs_darwin_started = 0;
-	int64_t r = psci_cpu_on((uint64_t)WATCH_CORE << 8, (uint64_t)block_server_entry, 0);
+	int64_t r = psci_cpu_on((uint64_t)WATCH_CORE << 8, sym_block_server_entry(), 0);
 	out("block server on cpu");
 	out_dec(WATCH_CORE);
 	out(": PSCI CPU_ON ");
