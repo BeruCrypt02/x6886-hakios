@@ -14,8 +14,12 @@ chains Android, so no LK-owned UFS state needs preserving.
 | Block size | 4096 bytes (UFS) |
 
 The loader reads the GPT from LUN 2, finds `super` by its UTF-16 name, then
-reads the partition's first block. It validates a HakiOS header before it uses
-any byte of the container.
+reads the partition's first block. A raw APFS container is accepted directly:
+`NXSB` (`0x4253584e`) at block offset 32 is enough, with no HAKIOS wrapper and
+no carved `xnusys` partition. `super_apfs_probe()` (`mtkloader.c:807-838`) also
+accepts the HAKIOS v1 header form when present, but the wrapper is optional,
+not required. See `docs/SUPER-IMAGE.md` for both probe paths and the full
+container plan.
 
 ## Header (512 bytes, partition LBA 0 = device LBA 0x60000)
 
@@ -41,6 +45,8 @@ container at `0xf3600000` bytes (4083154944, 3.803 GiB).
 `ios27/system27-prune.apfs` is 4297248768 bytes (4.002 GiB). It does not fit.
 The loader rejects it and falls back to the embedded md0. Phase 1 therefore
 uses `ios27/root26-darwin.apfs` (4194304 bytes) as the APFS container in super.
+The ceiling comes from the loader's preload model, not from XNU or UFS; the
+root cause and the two Phase 2 options are in `docs/SUPER-IMAGE.md`.
 
 `load_system_image()` walks consecutive APFS containers. Put a zero block after
 the root container so it stops there:
@@ -105,9 +111,14 @@ Do not touch GPT, preloader, LK, tee, userdata, metadata, `tr_product`,
 ## Loader log lines for the next live test
 
 - `super at block ... blocks ...` GPT lookup succeeded on LUN 2.
-- `super: HakiOS v1 header, APFS at +0x1000 (4 MB)` header accepted.
-- `super: no APFS header, using embedded md0 root26-darwin.apfs` header missing
-  or no `NXSB`; XNU boots from the embedded ramdisk.
+- `super: raw APFS container at offset 0` (`super: raw APFS container (NXSB at
+  +0x20)` in the current tree) raw container accepted at LBA 0, no wrapper
+  needed.
+- `super: HakiOS v1 header, APFS at +0x1000 (4 MB)` optional header form
+  accepted.
+- `super: no APFS header, using embedded md0 root26-darwin.apfs` (`super: no
+  NXSB at +0x20, no flash root` in the current tree) no `NXSB`; XNU boots from
+  the embedded ramdisk.
 - `root: super APFS as md0` / `root: embedded md0 root26-darwin.apfs` final choice.
 
 UFS bring-up logs each stage: `refclk on (PRE+POST)`, `host reset done`,

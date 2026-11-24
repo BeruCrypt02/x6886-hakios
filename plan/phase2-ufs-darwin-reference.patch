@@ -1,0 +1,134 @@
+diff --git a/build/loader/mtkloader.c b/build/loader/mtkloader.c
+index df3f6b6..b93a5f8 100644
+--- a/build/loader/mtkloader.c
++++ b/build/loader/mtkloader.c
+@@ -148,18 +148,31 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
+ #endif
+ /*
+  * 1: the system image stays on the eMMC and the kernel reads it as it needs it (emmc_root=1,
+- * bsd/dev/mtk_emmc.c), the default; 0: it is read into DRAM here as md0 -- 2.4 GB of the kernel's 4 GB,
+- * wired from the start, and three and a half minutes of every boot (run 320).
++ * bsd/dev/mtk_emmc.c), the default; 0: it is read into DRAM here as md0.
+  */
+-/* X6886 is UFS-only: there is no eMMC root for the kernel to read. The APFS system image
+- * is read into DRAM from the xnusys GPT partition and handed to XNU as md0. */
++/* X6886 is UFS-only.  The big APFS container lives raw in the stock "super" partition.
++ * XNU's userland init mounts the Darwin root from a DEVICE named by root_apfs=DEV
++ * (refs/hakios-common/init/init.c: boot_arg("root_apfs") -> "/dev/" DEV -> mount).
++ * That is a /dev node, not a GPT name: the loader exports super to the kernel's
++ * UFS driver as "darwin", which makes /dev/ufs_darwin.  Never pass "super" or
++ * "xnusys" here. */
+ #ifndef XNU_ROOT_EMMC
+ #define XNU_ROOT_EMMC       0
+ #endif
++/*
++ * The form XNU accepts for root_apfs= is a device node name: init.c does
++ * mount("apfs", "/flash", MNT_RDONLY, "/dev/" + value).  ufs_darwin is the
++ * node the kernel's UFS driver makes for the partition the loader exports as
++ * "darwin" (stock super).  ufs=2 asks this loader to serve that partition's
++ * blocks through the shared page whose PA is passed as ufs_shared_pa=.
++ */
++#ifndef XNU_ROOT_APFS_DEV
++#define XNU_ROOT_APFS_DEV   "ufs_darwin"
++#endif
+ #if XNU_ROOT_EMMC
+ #define XNU_ROOT_ARG        "rd=md0 emmc_root=1"     /* (rd=md0 for libignition's "ramdisk" boot) */
+ #else
+-#define XNU_ROOT_ARG        "rd=md0"
++#define XNU_ROOT_ARG        "rd=md0 ufs=2 root_apfs=" XNU_ROOT_APFS_DEV
+ #endif
+ #if XNU_VERBOSE
+ #define XNU_BOOT_ARGS       "debug=0x8 serial=3 " XNU_ROOT_ARG " -v " XNU_EXTRA_ARGS " loader_return_after=" XNU_RETURN_AFTER
+@@ -731,9 +744,11 @@ static uint64_t kva_to_pa(uint64_t va)
+ /* ---- the system image, on the flash ---- */
+ 
+ /*
+- * userland/system.apfs is the root XNU mounts (md0), 2.6 GB of it: too large for a boot image,
+- * so it lives in its own partition (tools/gpt-carve.py made "xnusys" out of the end of userdata)
+- * and is read into DRAM here. The payload's small root.apfs stays the second disk (md1).
++ * X6886 has no carved "xnusys": the big APFS container is written raw into the
++ * stock "super" partition, from its LBA 0.  system27-prune.apfs carries "NXSB"
++ * at offset 0x20, so one block read tells a flashed super image from the old
++ * Android lp_metadata.  The root is a DEVICE the kernel opens (/dev/ufs_darwin),
++ * never a GPT partition name.
+  */
+ static uint8_t gpt_entries[128 * 128] __attribute__((aligned(16)));
+ 
+@@ -780,36 +795,25 @@ static int gpt_find(const char *name, uint64_t *lba, uint64_t *blocks)
+ 	return 0;
+ }
+ 
+-/*
+- * HakiOS super image: a 512-byte header at LBA 0, then the raw APFS container.
+- * build/mksuper.py writes this; the loader validates magic, version and the
+- * "NXSB" container superblock before it treats super as XNU's root.
+- */
+-struct hk_super_hdr {
+-	uint8_t magic[8];       /* "HAKIOS\0\0" */
+-	uint32_t version;       /* 1 */
+-	uint32_t flags;
+-	uint64_t apfs_off;      /* bytes from partition start */
+-	uint64_t apfs_len;      /* bytes */
+-	uint8_t reserved[480];
+-};
+-_Static_assert(sizeof(struct hk_super_hdr) == 512, "super header is one UFS block");
+-
+-static const char *apfs_part = SYSTEM_PART;
++static const char *apfs_part = "super";
+ static uint64_t apfs_lba_off;
+ 
+-/* Read LUN 2's GPT and check whether "super" holds a valid HakiOS APFS container. */
++/*
++ * Read LUN 2's GPT, then one block of "super".  A raw APFS container has
++ * "NXSB" (0x4253584eu) at offset 0x20 -- verified offline on
++ * system27-prune.apfs.  There is no HakiOS header and no "xnusys" carve: the
++ * image is flashed at LBA 0 of the stock super partition, unchanged.
++ */
+ static int super_apfs_probe(void)
+ {
+ 	uint64_t lba, blocks;
+-	const volatile struct hk_super_hdr *h = (const volatile struct hk_super_hdr *)sector_buf;
+ 
+ 	if (!DISK_READY) {
+-		out("super: UFS off, using embedded md0 root26-darwin.apfs\n");
++		out("super: UFS off, no flash root\n");
+ 		return 0;
+ 	}
+ 	if (!gpt_find("super", &lba, &blocks)) {
+-		out("super: no GPT entry, using embedded md0 root26-darwin.apfs\n");
++		out("super: no GPT entry, no flash root\n");
+ 		return 0;
+ 	}
+ 	if (!disk_read(lba, 1, sector_buf)) {
+@@ -823,28 +827,13 @@ static int super_apfs_probe(void)
+ 	out(" blocks ");
+ 	out_hex(blocks);
+ 	out("\n");
+-	if (!memcmp_n((const char *)h->magic, "HAKIOS", 6) && h->version == 1 &&
+-	    h->apfs_off >= DISK_BLOCK_BYTES && h->apfs_off % DISK_BLOCK_BYTES == 0 &&
+-	    h->apfs_len >= DISK_BLOCK_BYTES) {
+-		apfs_lba_off = h->apfs_off / DISK_BLOCK_BYTES;
+-		if (disk_read(lba + apfs_lba_off, 1, sector_buf) &&
+-		    *(volatile uint32_t *)(sector_buf + 32) == 0x4253584eu) { /* "NXSB" */
+-			apfs_part = "super";
+-			out("super: HakiOS v1 header, APFS at +");
+-			out_hex(h->apfs_off);
+-			out(" (");
+-			out_dec((uint32_t)(h->apfs_len >> 20));
+-			out(" MB)\n");
+-			return 1;
+-		}
+-	}
+-	if (*(volatile uint32_t *)(sector_buf + 32) == 0x4253584eu) {
++	if (*(volatile uint32_t *)(sector_buf + 32) == 0x4253584eu) { /* "NXSB" */
+ 		apfs_lba_off = 0;
+ 		apfs_part = "super";
+-		out("super: raw APFS container at offset 0\n");
++		out("super: raw APFS container (NXSB at +0x20)\n");
+ 		return 1;
+ 	}
+-	out("super: no APFS header, using embedded md0 root26-darwin.apfs\n");
++	out("super: no NXSB at +0x20, no flash root\n");
+ 	return 0;
+ }
+ 
