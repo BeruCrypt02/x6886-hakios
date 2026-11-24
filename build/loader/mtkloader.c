@@ -279,6 +279,41 @@ struct dt_writer {
 extern char _start[];
 extern char chain_stub[], chain_stub_end[];
 extern char xnu_return_stub[];
+
+/*
+ * These live in start.S. Clang puts every external symbol in .got with its LINK
+ * address (0x40010000); reading _start from C therefore gives where we were
+ * linked, not where LK actually loaded us. Fetch them from the current PC so
+ * the loader is genuinely position-independent.
+ */
+static inline uint64_t sym_start(void)
+{
+	uint64_t v;
+
+	__asm__ volatile("adrp %0, _start\n\tadd %0, %0, :lo12:_start" : "=r"(v));
+	return v;
+}
+static inline uint64_t sym_chain_stub(void)
+{
+	uint64_t v;
+
+	__asm__ volatile("adrp %0, chain_stub\n\tadd %0, %0, :lo12:chain_stub" : "=r"(v));
+	return v;
+}
+static inline uint64_t sym_chain_stub_end(void)
+{
+	uint64_t v;
+
+	__asm__ volatile("adrp %0, chain_stub_end\n\tadd %0, %0, :lo12:chain_stub_end" : "=r"(v));
+	return v;
+}
+static inline uint64_t sym_xnu_return_stub(void)
+{
+	uint64_t v;
+
+	__asm__ volatile("adrp %0, xnu_return_stub\n\tadd %0, %0, :lo12:xnu_return_stub" : "=r"(v));
+	return v;
+}
 extern void jump_to_kernel(uint64_t entry_pa, uint64_t boot_args_pa);
 extern void psci_system_reset(void);
 extern int64_t psci_cpu_on(uint64_t mpidr, uint64_t entry, uint64_t context);
@@ -516,9 +551,10 @@ static void display_alpha_off(void)
 
 static const struct payload_header *payload_find(void)
 {
-	const volatile uint64_t *hdr = (const volatile uint64_t *)_start;
-	uint64_t off = hdr[6]; /* Image header 0x30 (res4): chainboot-x6886.py writes the XNUP offset here */
-	const struct payload_header *ph = (const struct payload_header *)((uint64_t)_start + off);
+	uint64_t base = sym_start();
+	const volatile uint64_t *hdr = (const volatile uint64_t *)base;
+	uint64_t off = hdr[6]; /* Image header 0x30: chainboot-x6886.py writes the XNUP offset here */
+	const struct payload_header *ph = (const struct payload_header *)(base + off);
 
 	if (off == 0 || (off & 15) || ph->magic != PAYLOAD_MAGIC) {
 		return NULL;
@@ -1126,11 +1162,21 @@ static void __attribute__((noreturn)) reset_board(void)
 static void touch_hand_back(void);
 #endif
 
+/* Keep the phone alive during a diagnostic pause, but never reset under our own feet. */
+static void diag_pause(uint32_t ms)
+{
+	for (uint32_t t = 0; t < ms; t += 250) {
+		wr32(TOPRGU_RESTART, TOPRGU_RESTART_KEY);
+		dbg_delay_ms(250);
+	}
+}
+
 static void __attribute__((noreturn)) chain_android(void)
 {
-	const volatile uint64_t *hdr = (const volatile uint64_t *)_start;
-	const volatile uint32_t *img = (const volatile uint32_t *)((uint64_t)_start + CHAIN_OFFSET);
-	uint64_t image_size = (hdr[5] + 7) & ~7ULL; /* Image header 0x28 (res3): Android Image length */
+	uint64_t base = sym_start();
+	const volatile uint64_t *hdr = (const volatile uint64_t *)base;
+	const volatile uint32_t *img = (const volatile uint32_t *)(base + CHAIN_OFFSET);
+	uint64_t image_size = (hdr[5] + 7) & ~7ULL; /* Image header 0x28: Android Image length */
 
 	marker_set(0);
 	/* If chainboot's res3 was zero, the Android Image header at CHAIN_OFFSET
@@ -1144,13 +1190,14 @@ static void __attribute__((noreturn)) chain_android(void)
 	}
 	if (image_size == 0 || img[14] != 0x644d5241u) { /* "ARM\x64" */
 		out("no Android kernel in this image: reset\n");
-		out("_start "); out_hex((uint64_t)_start);
+		out("base "); out_hex(base);
+		out(" link _start "); out_hex((uint64_t)_start);
 		out(" CHAIN_OFFSET "); out_hex(CHAIN_OFFSET);
 		out(" res3 "); out_hex(hdr[5]);
 		out(" hdr_size "); out_hex((uint64_t)img[4] | ((uint64_t)img[5] << 32));
 		out(" magic "); out_hex(img[14]);
 		out("\n");
-		dbg_delay_ms(3000);
+		diag_pause(3000);
 		reset_board();
 	}
 #if TOUCH_PROBE
@@ -1159,8 +1206,9 @@ static void __attribute__((noreturn)) chain_android(void)
 	out("starting Android\n");
 
 	volatile uint32_t *dst = (volatile uint32_t *)CHAIN_STUB_PA;
-	const volatile uint32_t *src = (const volatile uint32_t *)chain_stub;
-	for (uint64_t i = 0; i < (uint64_t)(chain_stub_end - chain_stub) / 4; i++) {
+	uint64_t stub_pa = sym_chain_stub(), stub_end_pa = sym_chain_stub_end();
+	const volatile uint32_t *src = (const volatile uint32_t *)stub_pa;
+	for (uint64_t i = 0; i < (stub_end_pa - stub_pa) / 4; i++) {
 		dst[i] = src[i];
 	}
 	__asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
@@ -2321,7 +2369,7 @@ static void boot_banner(uint64_t entry_pa)
 
 	out("\n=== HakiOS xnu-12377 handoff ===\n");
 	out("EL        "); out_dec(el); out("\n");
-	out("load      "); out_hex((uint64_t)_start); out("\n");
+	out("load      "); out_hex(sym_start()); out("\n");
 	out("LK dtb    "); out_hex(lk_dtb); out("\n");
 	out("OVL0      "); out_hex(OVL0_BASE); out(" src "); out_hex(rd32(OVL0_BASE + OVL_SRC_CON)); out("\n");
 	out("fb        "); out_hex(fb_base); out(" pitch "); out_dec(fb_pitch); out("\n");
@@ -2342,8 +2390,27 @@ static void __attribute__((noreturn)) run_xnu(void)
 	struct xnu_syms s;
 
 	if (!parse_payload(&pi)) {
+		uint64_t base = sym_start(), el;
+		const volatile uint64_t *h = (const volatile uint64_t *)base;
+		const volatile uint32_t *im = (const volatile uint32_t *)(base + CHAIN_OFFSET);
+		uint64_t off = h[6];
+		uint32_t magic = 0;
+
+		__asm__ volatile("mrs %0, CurrentEL" : "=r"(el));
+		/* Do not dereference a wild res3 from a corrupt image. */
+		if (off && off < (64ULL << 20) && !(off & 3)) {
+			magic = *(const volatile uint32_t *)(base + off);
+		}
 		out("ERROR: no XNU payload in this image\n");
-		dbg_delay_ms(5000);
+		out("EL "); out_dec((el >> 2) & 3u);
+		out(" base "); out_hex(base);
+		out(" link _start "); out_hex((uint64_t)_start);
+		out(" res2 "); out_hex(h[5]);
+		out(" res3 "); out_hex(off);
+		out(" magic@base+res3 "); out_hex(magic);
+		out(" img[14] "); out_hex(im[14]);
+		out("\n");
+		diag_pause(5000);
 		chain_android();
 	}
 	out("XNU kernel ");
@@ -2478,7 +2545,7 @@ static void __attribute__((noreturn)) run_xnu(void)
 	if (s.stub_slot) {
 		volatile uint64_t *slot = (volatile uint64_t *)kva_to_pa(s.stub_slot);
 		if (slot[0] == 0x545352444c554e58ULL) { /* "XNULDRST" */
-			slot[1] = (uint64_t)xnu_return_stub;
+			slot[1] = sym_xnu_return_stub();
 			slot[2] = XNU_CHECKPOINT;
 			slot[3] = XNU_SLIDE;
 			out("return stub at ");
