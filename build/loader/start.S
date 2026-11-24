@@ -14,6 +14,8 @@
 .global mmu_on
 .global dcache_clean_range
 .global irq_wait
+.global install_xnu_vectors
+.global xnu_fault_common
 .section .text.boot
 
 _start:
@@ -371,6 +373,57 @@ mtk_vectors:
     vec 0x700
     vec 0x780
 
+/*
+ * Handoff vectors. Installed just before the jump so an early XNU fault is
+ * reported instead of hanging. XNU overwrites VBAR_EL1 when its own trap
+ * setup runs, so these do not interfere once the kernel is up.
+ */
+install_xnu_vectors:
+    adrp    x9, xnu_vectors
+    add     x9, x9, :lo12:xnu_vectors
+    msr     vbar_el1, x9
+    isb
+    ret
+
+.macro xvec off
+    .balign 0x80
+    mov     x0, #\off
+    b       xnu_fault_common
+.endm
+
+xnu_fault_common:
+    msr     daifset, #0xf
+    mrs     x1, esr_el1             /* ESR_EL1 */
+    mrs     x2, elr_el1             /* ELR_EL1 */
+    mrs     x3, far_el1             /* FAR_EL1 */
+    mrs     x4, spsr_el1            /* SPSR_EL1 */
+    mrs     x5, CurrentEL
+    adrp    x6, xnu_fault_stack_top
+    add     x6, x6, :lo12:xnu_fault_stack_top
+    mov     sp, x6
+    bl      xnu_early_fault          /* C: dumps to FB + ramoops, then halts */
+1:  wfe
+    b       1b
+
+    .balign 0x800
+xnu_vectors:
+    xvec 0x000                      /* current EL, SP0: sync/irq/fiq/error */
+    xvec 0x080
+    xvec 0x100
+    xvec 0x180
+    xvec 0x200                      /* current EL, SPx */
+    xvec 0x280
+    xvec 0x300
+    xvec 0x380
+    xvec 0x400                      /* lower EL, AArch64 */
+    xvec 0x480
+    xvec 0x500
+    xvec 0x580
+    xvec 0x600                      /* lower EL, AArch32 */
+    xvec 0x680
+    xvec 0x700
+    xvec 0x780
+
 /* Stacks inside the loaded image, not in unbacked memory below DRAM's base. */
     .section .bss
     .balign 64
@@ -383,3 +436,6 @@ fault_stack_top:
 watcher_stack_bottom:
     .space 0x8000
 watcher_stack_top:
+xnu_fault_stack_bottom:
+    .space 0x4000
+xnu_fault_stack_top:

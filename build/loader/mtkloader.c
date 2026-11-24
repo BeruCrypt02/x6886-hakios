@@ -125,14 +125,9 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
 #ifndef TIMER_PROBE
 #define TIMER_PROBE         0
 #endif
-/*
- * Android is the default. XNU is opt-in only through the one-shot
- * "HAKIOS:BOOT-XNU" line in the pmsg zone (tools/boot-xnu.sh). With the old
- * default of 1, every reboot after the XNU watchdog reset chose XNU again,
- * which is what made the phone loop forever even after the marker was cleared.
- */
+/* Kept only for older build scripts. The loader now boots XNU on every path. */
 #ifndef MENU_DEFAULT_XNU
-#define MENU_DEFAULT_XNU    0
+#define MENU_DEFAULT_XNU    1
 #endif
 /*
  * 1: the kernel's text console on the screen (-v). It is a slow way to run -- scrolling reads
@@ -299,20 +294,6 @@ static inline uint64_t sym_start(void)
 	__asm__ volatile("adrp %0, _start\n\tadd %0, %0, :lo12:_start" : "=r"(v));
 	return v;
 }
-static inline uint64_t sym_chain_stub(void)
-{
-	uint64_t v;
-
-	__asm__ volatile("adrp %0, chain_stub\n\tadd %0, %0, :lo12:chain_stub" : "=r"(v));
-	return v;
-}
-static inline uint64_t sym_chain_stub_end(void)
-{
-	uint64_t v;
-
-	__asm__ volatile("adrp %0, chain_stub_end\n\tadd %0, %0, :lo12:chain_stub_end" : "=r"(v));
-	return v;
-}
 static inline uint64_t sym_xnu_return_stub(void)
 {
 	uint64_t v;
@@ -321,6 +302,8 @@ static inline uint64_t sym_xnu_return_stub(void)
 	return v;
 }
 extern void jump_to_kernel(uint64_t entry_pa, uint64_t boot_args_pa);
+extern void install_xnu_vectors(void);
+static void plog_flush(void);
 extern void psci_system_reset(void);
 extern int64_t psci_cpu_on(uint64_t mpidr, uint64_t entry, uint64_t context);
 extern void watcher_entry(void);
@@ -797,6 +780,74 @@ static int gpt_find(const char *name, uint64_t *lba, uint64_t *blocks)
 	return 0;
 }
 
+/*
+ * HakiOS super image: a 512-byte header at LBA 0, then the raw APFS container.
+ * build/mksuper.py writes this; the loader validates magic, version and the
+ * "NXSB" container superblock before it treats super as XNU's root.
+ */
+struct hk_super_hdr {
+	uint8_t magic[8];       /* "HAKIOS\0\0" */
+	uint32_t version;       /* 1 */
+	uint32_t flags;
+	uint64_t apfs_off;      /* bytes from partition start */
+	uint64_t apfs_len;      /* bytes */
+	uint8_t reserved[480];
+};
+_Static_assert(sizeof(struct hk_super_hdr) == 512, "super header is one UFS block");
+
+static const char *apfs_part = SYSTEM_PART;
+static uint64_t apfs_lba_off;
+
+/* Read LUN 2's GPT and check whether "super" holds a valid HakiOS APFS container. */
+static int super_apfs_probe(void)
+{
+	uint64_t lba, blocks;
+	const volatile struct hk_super_hdr *h = (const volatile struct hk_super_hdr *)sector_buf;
+
+	if (!DISK_READY) {
+		out("super: UFS off, using embedded md0 root26-darwin.apfs\n");
+		return 0;
+	}
+	if (!gpt_find("super", &lba, &blocks)) {
+		out("super: no GPT entry, using embedded md0 root26-darwin.apfs\n");
+		return 0;
+	}
+	if (!disk_read(lba, 1, sector_buf)) {
+		out("super: cannot read its first block: ");
+		out(disk_last.what);
+		out("\n");
+		return 0;
+	}
+	out("super at block ");
+	out_hex(lba);
+	out(" blocks ");
+	out_hex(blocks);
+	out("\n");
+	if (!memcmp_n((const char *)h->magic, "HAKIOS", 6) && h->version == 1 &&
+	    h->apfs_off >= DISK_BLOCK_BYTES && h->apfs_off % DISK_BLOCK_BYTES == 0 &&
+	    h->apfs_len >= DISK_BLOCK_BYTES) {
+		apfs_lba_off = h->apfs_off / DISK_BLOCK_BYTES;
+		if (disk_read(lba + apfs_lba_off, 1, sector_buf) &&
+		    *(volatile uint32_t *)(sector_buf + 32) == 0x4253584eu) { /* "NXSB" */
+			apfs_part = "super";
+			out("super: HakiOS v1 header, APFS at +");
+			out_hex(h->apfs_off);
+			out(" (");
+			out_dec((uint32_t)(h->apfs_len >> 20));
+			out(" MB)\n");
+			return 1;
+		}
+	}
+	if (*(volatile uint32_t *)(sector_buf + 32) == 0x4253584eu) {
+		apfs_lba_off = 0;
+		apfs_part = "super";
+		out("super: raw APFS container at offset 0\n");
+		return 1;
+	}
+	out("super: no APFS header, using embedded md0 root26-darwin.apfs\n");
+	return 0;
+}
+
 /* Reads the image into SYSTEM_PA; returns its length, 0 if there is none to read. */
 static uint64_t load_system_image(void)
 {
@@ -806,11 +857,15 @@ static uint64_t load_system_image(void)
 		out("UFS off: no external system image, booting the embedded ramdisk\n");
 		return 0;
 	}
-	if (!gpt_find(SYSTEM_PART, &lba, &blocks)) {
-		out("no " SYSTEM_PART " partition on the flash (or the GPT could not be read)\n");
+	if (!gpt_find(apfs_part, &lba, &blocks)) {
+		out("no ");
+		out(apfs_part);
+		out(" partition on the flash (or the GPT could not be read)\n");
 		return 0;
 	}
-	out(SYSTEM_PART " at block ");
+	lba += apfs_lba_off;
+	out(apfs_part);
+	out(" at block ");
 	out_hex(lba);
 	out(", ");
 	out_dec(blocks / 2048);
@@ -862,6 +917,11 @@ static uint64_t load_system_image(void)
 		out("(only the first ");
 		out_dec(SYSTEM_MAX_MB);
 		out(" MB of it, as built)\n");
+	}
+	/* Leave room for the DTB and boot_args at the top of XNU's window. */
+	if (SYSTEM_PA + size > XNU_PHYS_BASE + XNU_MEM_SIZE - (64ULL << 20)) {
+		out("APFS container too large for the XNU window, using embedded md0\n");
+		return 0;
 	}
 
 	out("reading ");
@@ -1403,96 +1463,26 @@ static void lk_boot_state(void)
 	out(recovery_requested ? "recovery\n" : "normal\n");
 }
 
-/* One prominent line, on the panel and in pstore, for whichever target we hand off to. */
-static void chain_banner(const char *what)
+/*
+ * HakiOS owns the boot chain now: Recovery flashes the HakiOS super and boot
+ * images, Penumbra reverts them. There is no Android kernel to chain back to.
+ * A loader failure stops on a readable screen instead of resetting into a
+ * fast bootloop or handing control to LK's kernel.
+ */
+static void __attribute__((noreturn)) fatal_halt(const char *why)
 {
-	uint64_t screen = fbc.base;
-
-	fbc.base = 0;
-	out("\nboot: ");
-	out(what);
-	out("\n");
-	fbc.base = screen;
-	fb_rect(0, 600, PANEL_W, 160, 0xff000000u);
-	fbc.scale = 3;
-	fbc.x = 48;
-	fbc.y = 640;
-	fbc.fg = 0xff40ff40u;
-	for (const char *c = what; *c; c++) {
-		fbcon_putc(*c);
-	}
-	fbc.scale = 2;
-	fbc.fg = 0xffffffffu;
+	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
 	fbc.x = 16;
-	fbc.y = 200;
-}
-
-static void __attribute__((noreturn)) chain_android(void)
-{
-	uint64_t base = sym_start();
-	const volatile uint64_t *hdr = (const volatile uint64_t *)base;
-	const volatile uint32_t *img = (const volatile uint32_t *)(base + CHAIN_OFFSET);
-	uint64_t image_size = (hdr[5] + 7) & ~7ULL; /* Image header 0x28: Android Image length */
-
-	marker_set(0);
-	chain_banner(recovery_requested ? "Booting recovery" : "Booting Android");
-
-	/* If chainboot's res3 was zero, the Android Image header at CHAIN_OFFSET
-	 * carries the same length at +0x10. Do not fail just because res3 was lost. */
-	if (image_size == 0 || image_size > (64ULL << 20)) {
-		uint64_t in_hdr = (uint64_t)img[4] | ((uint64_t)img[5] << 32);
-
-		if (in_hdr >= 0x1000 && in_hdr <= (64ULL << 20)) {
-			image_size = (in_hdr + 7) & ~7ULL;
-		}
-	}
-	if (image_size == 0 || image_size > (64ULL << 20) || img[14] != 0x644d5241u) { /* "ARM\x64" */
-		out("no Android kernel in this image: ");
-		out(recovery_requested ? "resetting for another recovery try\n" : "reset\n");
-		out("base "); out_hex(base);
-		out(" link _start "); out_hex((uint64_t)_start);
-		out(" CHAIN_OFFSET "); out_hex(CHAIN_OFFSET);
-		out(" res2 "); out_hex(hdr[5]);
-		out(" hdr_size "); out_hex((uint64_t)img[4] | ((uint64_t)img[5] << 32));
-		out(" magic "); out_hex(img[14]);
-		out("\n");
-		diag_pause(5000);
-		/* On a recovery request a bad image must not strand the phone: let LK try again. */
-		if (recovery_requested) {
-			reset_board();
-		}
-		out("Halted: chain failed, cycle power to boot Android.\n");
-		halt_readable();
-	}
-#if TOUCH_PROBE
-	touch_hand_back();
-#endif
-	out("starting ");
-	out(recovery_requested ? "recovery" : "Android");
-	out(": base ");
-	out_hex(base);
-	out(" image_size ");
-	out_dec(image_size);
-	out("\n");
-	/* A recovery handoff must be prompt: the ramdisk is LK's, not ours. */
-	diag_pause(recovery_requested ? 100 : 1000);
-
-	/* LK put the command line and the ramdisk addresses in this tree. With the
-	 * MMU off it does not need cleaning, but do it anyway so the kernel cannot
-	 * see stale cache lines on the properties it must read to find recovery. */
-	if (lk_dtb_size >= 40 && lk_dtb_size <= (2ULL << 20)) {
-		dcache_clean_range(lk_dtb, lk_dtb_size);
-	}
-	volatile uint32_t *dst = (volatile uint32_t *)CHAIN_STUB_PA;
-	uint64_t stub_pa = sym_chain_stub(), stub_end_pa = sym_chain_stub_end();
-	const volatile uint32_t *src = (const volatile uint32_t *)stub_pa;
-	for (uint64_t i = 0; i < (stub_end_pa - stub_pa) / 4; i++) {
-		dst[i] = src[i];
-	}
-	__asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
-	void (*stub)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) = (void *)CHAIN_STUB_PA;
-	stub(lk_dtb, KERNEL_PA, (uint64_t)img, image_size, KERNEL_PA);
-	__builtin_unreachable();
+	fbc.y = fbc.top = 200;
+	fbc.scale = 2;
+	fbc.fg = 0xffff4040u;
+	out("\n=== mtkloader halted ===\n");
+	out(why);
+	out("\nbase "); out_hex(sym_start());
+	out(" link _start "); out_hex((uint64_t)_start);
+	out("\nCycle power, or revert with Penumbra BROM.\n");
+	diag_pause(5000);
+	halt_readable();
 }
 
 void loader_fault(uint64_t vec, uint64_t esr, uint64_t elr, uint64_t far)
@@ -1507,8 +1497,28 @@ void loader_fault(uint64_t vec, uint64_t esr, uint64_t elr, uint64_t far)
 	out(" FAR ");
 	out_hex(far);
 	out("\n");
-	dbg_delay_ms(5000);
-	chain_android();
+	fatal_halt("loader fault");
+}
+
+/*
+ * Early XNU fault, taken on the vectors installed just before the jump. XNU
+ * replaces VBAR_EL1 during its own trap setup, so this only sees faults in
+ * the window before that. It writes to the panel and pstore, then stops.
+ */
+void xnu_early_fault(uint64_t vec, uint64_t esr, uint64_t elr, uint64_t far,
+    uint64_t spsr, uint64_t el)
+{
+	fbc.fg = 0xffff4040u;
+	out("\n*** EARLY XNU FAULT ***\n");
+	out("vector "); out_hex(vec);
+	out(" CurrentEL "); out_dec((el >> 2) & 3u);
+	out("\nESR_EL1 "); out_hex(esr);
+	out(" ELR_EL1 "); out_hex(elr);
+	out(" FAR_EL1 "); out_hex(far);
+	out(" SPSR_EL1 "); out_hex(spsr);
+	out("\n");
+	plog_flush();
+	fatal_halt("early XNU fault before its own vectors");
 }
 
 /* ---- XNU's log into ramoops ---- */
@@ -2711,8 +2721,7 @@ static void __attribute__((noreturn)) run_xnu(void)
 		out(" magic@base+res3 "); out_hex(magic);
 		out(" img[14] "); out_hex(im[14]);
 		out("\n");
-		diag_pause(5000);
-		chain_android();
+		fatal_halt("no XNU payload in this image");
 	}
 	out("XNU kernel ");
 	out_dec(pi.kernel_size);
@@ -2863,7 +2872,15 @@ static void __attribute__((noreturn)) run_xnu(void)
 		memcpy((void *)rd_pa, pi.ramdisk, pi.ramdisk_size);
 	}
 	/* and the big one off the flash, if it is there (with XNU_ROOT_EMMC the kernel reads it itself) */
-	uint64_t sys_size = (XNU_ROOT_EMMC || !DISK_READY) ? 0 : load_system_image();
+	uint64_t sys_size;
+
+	if (!XNU_ROOT_EMMC && super_apfs_probe()) {
+		out("root: super APFS as md0\n");
+		sys_size = load_system_image();
+	} else {
+		out("root: embedded md0 root26-darwin.apfs\n");
+		sys_size = 0;
+	}
 	uint64_t sys_pa = sys_size ? SYSTEM_PA : 0;
 	uint64_t sys_span = (sys_size + PAGE_SIZE_MAX - 1) & ~(PAGE_SIZE_MAX - 1);
 
@@ -2994,14 +3011,13 @@ static void __attribute__((noreturn)) run_xnu(void)
 	out("JUMPED to XNU entry ");
 	out_hex(kva_to_pa(entry_va));
 	out("\n");
-	/* Make sure the breadcrumb is in DRAM before XNU's MMU and caches come up. */
+	/* Our vectors stay in VBAR_EL1 until XNU installs its own. */
+	install_xnu_vectors();
+	/* Make sure the breadcrumbs are in DRAM before XNU's MMU and caches come up. */
 	plog_flush();
 	out("Jumping to XNU...\n");
 	jump_to_kernel(kva_to_pa(entry_va), ba_pa);
-	out("ERROR: returned from XNU entry\n");
-	for (;;) {
-		__asm__ volatile("wfe");
-	}
+	fatal_halt("XNU entry returned: XNU did not start");
 }
 
 #if MSDC_TEST
@@ -3567,21 +3583,8 @@ static void touch_hand_back(void)
 }
 #endif /* TOUCH_PROBE */
 
-/* ---- choosing what to boot ---- */
-
-/*
- * Android unless asked for XNU, once. The keypad's state registers change by themselves (a scan
- * pattern), so keys are not used. The request is a line written to /dev/pmsg0 under Android
- * (tools/boot-xnu.sh): ramoops keeps it in its pmsg zone across the reboot, where this finds it
- * and wipes it, so the boot after XNU is Android again.
- */
-static const char boot_xnu_flag[] = "HAKIOS:BOOT-XNU";
-
-/*
- * Whether Android left `flag` in the pmsg zone before rebooting, and if so wipe it, so it is taken
- * once: a run that hangs costs one reboot, after which the loader finds nothing and starts Android.
- */
-static int pmsg_take(const char *flag, uint32_t n)
+/* Probe flags live in the pmsg zone; kept for the optional diagnostic builds. */
+__attribute__((unused)) static int pmsg_take(const char *flag, uint32_t n)
 {
 	volatile struct ramoops_hdr *h = (volatile struct ramoops_hdr *)RAMOOPS_PMSG;
 	volatile char *d = (volatile char *)(RAMOOPS_PMSG + sizeof(struct ramoops_hdr));
@@ -3604,37 +3607,6 @@ static int pmsg_take(const char *flag, uint32_t n)
 		}
 	}
 	return found;
-}
-
-static int xnu_requested(void)
-{
-	return pmsg_take(boot_xnu_flag, sizeof(boot_xnu_flag) - 1);
-}
-
-static int boot_choice(void)
-{
-	int xnu = !recovery_requested && (MENU_DEFAULT_XNU || xnu_requested());
-	uint64_t screen = fbc.base;
-
-	fbc.base = 0;
-	dbg_puts(xnu ? "boot: Darwin / XNU (requested)\n" : "boot: Android\n");
-	fbc.base = screen;
-	fb_rect(0, 600, PANEL_W, 160, 0xff000000u);
-	fbc.scale = 3;
-	fbc.x = 48;
-	fbc.y = 640;
-	fbc.fg = xnu ? 0xff40ff40u : 0xffffffffu;
-	for (const char *c = xnu ? "Booting Darwin / XNU" : "Booting Android"; *c; c++) {
-		fbcon_putc(*c);
-	}
-	/* The scale-3 banner sat on row 640; put the cursor back in the readable
-	 * margin so the next newline cannot draw through it or clip at the edge. */
-	fbc.scale = 2;
-	fbc.fg = 0xffffffffu;
-	fbc.x = 16;
-	fbc.y = 200;
-	dbg_delay_ms(1000);
-	return xnu;
 }
 
 #if GPU_PROBE
@@ -4006,41 +3978,14 @@ void mtkloader_main(uint64_t dtb)
 	out_hex(fb_pitch);
 	out("\n");
 
-	/*
-	 * LK's recovery request is in the tree it hands us, not in the pmsg zone.
-	 * Read it before any other choice so a recovery boot can never fall
-	 * through to XNU, a probe, or a halt. The ramdisk and initrd pointers are
-	 * LK's: we hand this same tree back to the kernel in x0.
-	 */
+	/* LK's boot reason is still worth logging, but it no longer picks a target. */
 	lk_boot_state();
-	if (recovery_requested) {
-		if (mark == MARK_RUNNING) {
-			/* Keep the log of the XNU run the watchdog cut short. */
-			rescue_log();
-			marker_set(0);
-		}
-		chain_android();
-	}
 
-	if (mark == MARK_DONE) {
-		/* XNU's log was saved when it came back; leave ramoops as it is. */
-		chain_android();
-	}
-	if (mark == MARK_RUNNING) {
-		/* TOPRGU cut XNU short after its run. Save what we can, then hand the
-		 * phone back cleanly: clear the marker so the NEXT boot stays in
-		 * Android (MENU_DEFAULT_XNU is 0, so only the pmsg flag selects XNU). */
+	/* The watchdog cut XNU short. Keep its log, clear the marker, boot XNU again. */
+	if (mark == MARK_RUNNING || mark == MARK_DONE) {
 		rescue_log();
-		fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
-		fbc.x = 16;
-		fbc.y = fbc.top = 200;
-		fbc.scale = 2;
-		fbc.fg = 0xff40ff40u;
-		out("\n=== XNU ran, TOPRGU watchdog reset ===\n");
-		out("XNU ran; returning to Android\n");
 		marker_set(0);
-		diag_pause(3000);
-		chain_android();   /* only halts here if the Android Image is really bad */
+		out("\n=== previous XNU run ended; booting XNU again ===\n");
 	}
 
 	plog_reset();
@@ -4051,7 +3996,7 @@ void mtkloader_main(uint64_t dtb)
 	out("== mtkloader: touch screen probe ==\n");
 	touch_probe();
 	dbg_delay_ms(4000);
-	chain_android();
+	fatal_halt("probe finished");
 #endif
 #if GPU_PROBE
 	if (pmsg_take(gpu_probe_flag, sizeof(gpu_probe_flag) - 1)) {
@@ -4062,7 +4007,7 @@ void mtkloader_main(uint64_t dtb)
 		gpu_probe();
 		dbg_delay_ms(4000);
 	}
-	chain_android();
+	fatal_halt("probe finished");
 #endif
 #if CAM_PROBE
 	if (pmsg_take(cam_probe_flag, sizeof(cam_probe_flag) - 1)) {
@@ -4073,7 +4018,7 @@ void mtkloader_main(uint64_t dtb)
 		cam_probe();
 		dbg_delay_ms(4000);
 	}
-	chain_android();
+	fatal_halt("probe finished");
 #endif
 #if MSDC_TEST
 	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
@@ -4083,11 +4028,9 @@ void mtkloader_main(uint64_t dtb)
 	msdc_self_test();
 	dbg_delay_ms(4000);
 	wdt_disable();
-	chain_android();
+	fatal_halt("probe finished");
 #endif
-	if (!boot_choice()) {
-		chain_android();
-	}
+	/* XNU-direct: every boot goes here. No menu, no pmsg opt-in, no Android. */
 #if HAKIOS_HAS_UFS
 	/* Take the UFS transfer list from LK before any GPT/system read. The list
 	 * lives at kernel_base + 64 MB: inside our memory window, below SYSTEM_PA

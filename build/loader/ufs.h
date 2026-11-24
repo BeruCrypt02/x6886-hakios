@@ -12,18 +12,62 @@
 #define UFSHC_CAP           0x000u
 #define UFSHC_VER           0x008u
 #define UFSHC_IS            0x020u
+#define UFSHC_IE            0x024u
 #define UFSHC_HCS           0x030u
 #define UFSHC_HCE           0x034u
+#define UFSHC_UECPA         0x038u
 #define UFSHC_UTRLBA        0x050u
 #define UFSHC_UTRLBAU       0x054u
 #define UFSHC_UTRLDBR       0x058u
 #define UFSHC_UTRLCLR       0x05Cu
 #define UFSHC_UTRLRSR       0x060u
+/* UIC command registers + MediaTek vendor reference-clock control. */
+#define UFSHC_UICCMD        0x090u
+#define UFSHC_UICARG1       0x094u
+#define UFSHC_UICARG2       0x098u
+#define UFSHC_UICARG3       0x09Cu
+#define UFSHC_REFCLK_CTRL   0x144u
+
+/* infracfg_ao reset block (soc/mt6789.toml + X6886 FDT). */
+#define UFS_INFRACFG        HAKIOS_SOC_INFRACFG_AO
+#define INFRACFG_HCI_SET    0x130u
+#define INFRACFG_HCI_CLR    0x134u
+#define INFRACFG_UNIPRO_SET 0x140u
+#define INFRACFG_UNIPRO_CLR 0x144u
+#define INFRACFG_HCI_BIT    15u
+#define INFRACFG_UNIPRO_BIT 7u
 
 #define UFSHC_CAP_NUTRS_MASK 0x1Fu
 #define UFSHC_CAP_64BIT      (1u << 24)
 #define UFSHC_HCS_READY      0x03u
 #define UFSHC_IS_FATAL       0x00031804u
+#define IS_UIC_ERROR         (1u << 2)
+#define IS_UIC_COMMAND_COMPL (1u << 10)
+
+/* MediaTek SiP UFS control (refs/klios716 .../0107-kl7-mtk-ufs.patch). */
+#define MTK_SIP_UFS_CONTROL       0x82000276ULL
+#define UFS_SIP_DEVICE_RESET      2u
+#define UFS_SIP_REF_CLK_NOTIFY    8u
+#define UFS_REFCLK_REQUEST        0x1u
+#define UFS_REFCLK_ACK            0x2u
+
+#define UIC_DME_GET           0x01u
+#define UIC_DME_SET           0x02u
+#define UIC_DME_ENABLE        0x12u
+#define UIC_DME_RESET         0x14u
+#define UIC_DME_LINK_STARTUP  0x16u
+#define PA_LOCAL_TX_LCC_ENABLE    0x155eu
+#define PA_PWRMODE                0x1571u
+#define VS_UNIPROPOWERDOWNCONTROL 0xd0a8u
+#define VS_SAVEPOWERCONTROL       0xd0a6u
+
+#define UPIU_QUERY_REQ       0x16u
+#define UPIU_QUERY_RSP       0x36u
+#define QUERY_READ_FLAG      0x05u
+#define QUERY_SET_FLAG       0x06u
+#define QUERY_FUNC_READ      0x01u
+#define QUERY_FUNC_WRITE     0x81u
+#define QUERY_FLAG_FDEVICEINIT 0x01u
 
 #define UTRD_DW0_READ        (0x10000000u | 0x04000000u)
 #define OCS_INVALID         0x0000000Fu
@@ -72,16 +116,23 @@ struct ufs_err {
 };
 static struct ufs_err ufs_last;
 
-/* LK hands us UFSHCI with HCE cleared on MT6789; log the state so the panel says why. */
+/* Read-only snapshot, safe at every stage (no side effects). */
 static void ufs_dump_state(const char *when)
 {
     dbg_puts("UFS ");
     dbg_puts(when);
-    dbg_puts(": CAP ");   dbg_hex(rd32(UFS_BASE + UFSHC_CAP), 8);
-    dbg_puts(" HCE ");    dbg_hex(rd32(UFS_BASE + UFSHC_HCE), 8);
+    dbg_puts(": VER ");   dbg_hex(rd32(UFS_BASE + UFSHC_VER), 8);
+    dbg_puts(" CAP ");    dbg_hex(rd32(UFS_BASE + UFSHC_CAP), 8);
     dbg_puts(" HCS ");    dbg_hex(rd32(UFS_BASE + UFSHC_HCS), 8);
+    dbg_puts(" HCE ");    dbg_hex(rd32(UFS_BASE + UFSHC_HCE), 8);
     dbg_puts(" IS ");     dbg_hex(rd32(UFS_BASE + UFSHC_IS), 8);
+    dbg_puts(" UECPA ");  dbg_hex(rd32(UFS_BASE + UFSHC_UECPA), 8);
     dbg_puts(" UTRLRSR "); dbg_hex(rd32(UFS_BASE + UFSHC_UTRLRSR), 8);
+    dbg_puts(" REFCLK "); dbg_hex(rd32(UFS_BASE + UFSHC_REFCLK_CTRL), 8);
+    dbg_puts("\nUFS rst: 0x130 "); dbg_hex(rd32(UFS_INFRACFG + INFRACFG_HCI_SET), 8);
+    dbg_puts(" 0x134 ");  dbg_hex(rd32(UFS_INFRACFG + INFRACFG_HCI_CLR), 8);
+    dbg_puts(" 0x140 ");  dbg_hex(rd32(UFS_INFRACFG + INFRACFG_UNIPRO_SET), 8);
+    dbg_puts(" 0x144 ");  dbg_hex(rd32(UFS_INFRACFG + INFRACFG_UNIPRO_CLR), 8);
     dbg_puts("\n");
 }
 
@@ -89,6 +140,8 @@ static int ufs_fail(const char *what, uint32_t status)
 {
     ufs_last.what = what;
     ufs_last.status = status;
+    /* Any failure disarms UFS: the caller then boots the embedded XNUP ramdisk. */
+    ufs_list_phys = 0;
     ufs_dump_state(what);
     return 0;
 }
@@ -105,6 +158,305 @@ static uint32_t ufs_get_be32(const uint8_t *p)
 {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+}
+
+/* ---- full MT6789 UFS bring-up, from refs/klios716 0107-kl7-mtk-ufs.patch ---- */
+
+/* Bounded waits: no loop in this header may spin forever. */
+#define UFS_UIC_TIMEOUT     500u    /* x 1 ms */
+#define UFS_QUERY_TIMEOUT   100u    /* x 1 ms */
+#define UFS_DEVINIT_POLLS   50u     /* x 5 ms */
+#define UFS_HCE_TIMEOUT     1000u   /* x 1 ms */
+
+static int ufs_read_lun(uint32_t lun, uint64_t lba, uint32_t blocks, void *dst);
+
+/* stage 0 = PRE, 1 = POST (heliodarwin 0141 patch:758-759). SMC32 0x82000276 stays. */
+static uint64_t ufs_smc(uint64_t cmd, uint64_t val, uint64_t stage)
+{
+    register uint64_t x0 __asm__("x0") = MTK_SIP_UFS_CONTROL;
+    register uint64_t x1 __asm__("x1") = cmd;
+    register uint64_t x2 __asm__("x2") = val;
+    register uint64_t x3 __asm__("x3") = stage;
+
+    __asm__ volatile("smc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x3) : "memory");
+    return x0;
+}
+
+/* One UIC command; result 0 means success, 0x100 means the bounded poll timed out. */
+static uint32_t ufs_uic(uint32_t op, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t *val)
+{
+    wr32(UFS_BASE + UFSHC_IS, IS_UIC_COMMAND_COMPL | IS_UIC_ERROR);
+    wr32(UFS_BASE + UFSHC_UICARG1, a1);
+    wr32(UFS_BASE + UFSHC_UICARG2, a2);
+    wr32(UFS_BASE + UFSHC_UICARG3, a3);
+    wr32(UFS_BASE + UFSHC_UICCMD, op & 0xffu);
+
+    for (uint32_t i = 0; i < UFS_UIC_TIMEOUT; i++) {
+        if (rd32(UFS_BASE + UFSHC_IS) & IS_UIC_COMMAND_COMPL) {
+            uint32_t result = rd32(UFS_BASE + UFSHC_UICARG2) & 0xffu;
+
+            if (val) {
+                *val = rd32(UFS_BASE + UFSHC_UICARG3);
+            }
+            wr32(UFS_BASE + UFSHC_IS, IS_UIC_COMMAND_COMPL);
+            return result;
+        }
+        dbg_delay_ms(1);
+    }
+    return 0x100u;
+}
+
+static int ufs_host_reset(void)
+{
+    uint32_t v = rd32(UFS_INFRACFG + INFRACFG_HCI_SET);
+
+    wr32(UFS_INFRACFG + INFRACFG_HCI_SET, v | (1u << INFRACFG_HCI_BIT));
+    v = rd32(UFS_INFRACFG + INFRACFG_UNIPRO_SET);
+    wr32(UFS_INFRACFG + INFRACFG_UNIPRO_SET, v | (1u << INFRACFG_UNIPRO_BIT));
+    dbg_delay_ms(1);
+    v = rd32(UFS_INFRACFG + INFRACFG_UNIPRO_CLR);
+    wr32(UFS_INFRACFG + INFRACFG_UNIPRO_CLR, v | (1u << INFRACFG_UNIPRO_BIT));
+    v = rd32(UFS_INFRACFG + INFRACFG_HCI_CLR);
+    wr32(UFS_INFRACFG + INFRACFG_HCI_CLR, v | (1u << INFRACFG_HCI_BIT));
+    dbg_delay_ms(1);
+    dbg_puts("UFS: host reset done\n");
+    return 1;
+}
+
+static int ufs_refclk_on(void)
+{
+    uint32_t v = rd32(UFS_BASE + UFSHC_REFCLK_CTRL);
+
+    if ((v & UFS_REFCLK_REQUEST) && ((v & UFS_REFCLK_ACK) >> 1) == (v & UFS_REFCLK_REQUEST)) {
+        return 1;
+    }
+    /* PRE (heliodarwin 0141:795): tell TF-A before writing the request bit. */
+    uint64_t s = ufs_smc(UFS_SIP_REF_CLK_NOTIFY, 1, 0);
+
+    if (s) {
+        return ufs_fail("refclk PRE SMC", (uint32_t)s);
+    }
+    dbg_delay_ms(1);
+    wr32(UFS_BASE + UFSHC_REFCLK_CTRL, UFS_REFCLK_REQUEST);
+    for (uint32_t i = 0; i < 100u; i++) {
+        v = rd32(UFS_BASE + UFSHC_REFCLK_CTRL);
+        if (((v & UFS_REFCLK_ACK) >> 1) == (v & UFS_REFCLK_REQUEST)) {
+            /* POST (0141:809): the notification is a pair, not one call. */
+            s = ufs_smc(UFS_SIP_REF_CLK_NOTIFY, 1, 1);
+            if (s) {
+                return ufs_fail("refclk POST SMC", (uint32_t)s);
+            }
+            dbg_puts("UFS: refclk on (PRE+POST)\n");
+            return 1;
+        }
+        dbg_delay_ms(1);
+    }
+    /* Timeout: POST with on=0, as 0141:804 does, then abort to the ramdisk. */
+    (void)ufs_smc(UFS_SIP_REF_CLK_NOTIFY, 0, 1);
+    return ufs_fail("refclk ACK", v);
+}
+
+static int ufs_hce_cycle(void)
+{
+    /*
+     * LK leaves the reference clock requested and acked. The infracfg host
+     * reset clears that handshake, so asking for the clock AFTER the reset
+     * never gets an ACK. Request it first (PRE+POST), then reset, then ask
+     * again once the reset has cleared the bits.
+     */
+    if (!ufs_refclk_on()) {
+        return 0;
+    }
+    if (rd32(UFS_BASE + UFSHC_HCE) & 1u) {
+        wr32(UFS_BASE + UFSHC_HCE, 0);
+        for (uint32_t i = 0; i < 10u && (rd32(UFS_BASE + UFSHC_HCE) & 1u); i++) {
+            dbg_delay_ms(1);
+        }
+    }
+    if (rd32(UFS_BASE + UFSHC_HCE) & 1u) {
+        return ufs_fail("HCE stop", rd32(UFS_BASE + UFSHC_HCE));
+    }
+    if (!ufs_host_reset() || !ufs_refclk_on()) {
+        return 0;
+    }
+    wr32(UFS_BASE + UFSHC_HCE, 1);
+    dbg_delay_ms(1);
+    for (uint32_t i = 0; i < UFS_HCE_TIMEOUT && !(rd32(UFS_BASE + UFSHC_HCE) & 1u); i++) {
+        dbg_delay_ms(1);
+    }
+    if (!(rd32(UFS_BASE + UFSHC_HCE) & 1u)) {
+        return ufs_fail("HCE start", rd32(UFS_BASE + UFSHC_HCE));
+    }
+    dbg_puts("UFS: HCE cycled, HCS ");
+    dbg_hex(rd32(UFS_BASE + UFSHC_HCS), 8);
+    dbg_puts("\n");
+    return 1;
+}
+
+static int ufs_pre_link(void)
+{
+    uint32_t v = 0, r;
+
+    r = ufs_uic(UIC_DME_SET, VS_UNIPROPOWERDOWNCONTROL << 16, 0, 0, &v);
+    if (r) {
+        return ufs_fail("prelink HPM", r);
+    }
+    r = ufs_uic(UIC_DME_SET, PA_LOCAL_TX_LCC_ENABLE << 16, 0, 0, &v);
+    if (r) {
+        return ufs_fail("prelink TXLCC", r);
+    }
+    r = ufs_uic(UIC_DME_GET, VS_SAVEPOWERCONTROL << 16, 0, 0, &v);
+    if (r) {
+        return ufs_fail("prelink SAVEPWR get", r);
+    }
+    r = ufs_uic(UIC_DME_SET, VS_SAVEPOWERCONTROL << 16, 0, v & ~(1u << 6), &v);
+    if (r) {
+        return ufs_fail("prelink SAVEPWR set", r);
+    }
+    return 1;
+}
+
+static int ufs_bringup(void)
+{
+    uint32_t v = 0, r;
+
+    if (!ufs_hce_cycle()) {
+        return 0;
+    }
+    uint64_t s = ufs_smc(UFS_SIP_DEVICE_RESET, 0, 0);
+
+    if (s) {
+        return ufs_fail("device reset low", (uint32_t)s);
+    }
+    dbg_delay_ms(1);
+    s = ufs_smc(UFS_SIP_DEVICE_RESET, 1, 0);
+    if (s) {
+        return ufs_fail("device reset high", (uint32_t)s);
+    }
+    dbg_delay_ms(15);
+    dbg_puts("UFS: device reset done\n");
+
+    if (!ufs_pre_link()) {
+        return 0;
+    }
+    r = ufs_uic(UIC_DME_LINK_STARTUP, 0, 0, 0, &v);
+    if (r) {
+        /* The KL7 recovery path: DME_RESET -> DME_ENABLE -> pre-link -> retry. */
+        (void)ufs_uic(UIC_DME_RESET, 0, 0, 0, &v);
+        (void)ufs_uic(UIC_DME_ENABLE, 0, 0, 0, &v);
+        if (!ufs_pre_link()) {
+            return 0;
+        }
+        r = ufs_uic(UIC_DME_LINK_STARTUP, 0, 0, 0, &v);
+    }
+    if (r) {
+        return ufs_fail("DME_LINK_STARTUP", r);
+    }
+    dbg_puts("UFS: link up\n");
+    (void)ufs_uic(UIC_DME_GET, PA_PWRMODE << 16, 0, 0, &v);
+    dbg_puts("UFS: PA_PWRMODE ");
+    dbg_hex(v, 8);
+    dbg_puts("\n");
+    return 1;
+}
+
+/* One QUERY REQUEST in slot 0; value is the big-endian word at UPIU +20. */
+static uint8_t ufs_tag;
+static uint8_t ufs_gpt_buf[UFS_BLOCK_BYTES] __attribute__((aligned(16)));
+
+static int ufs_query_flag(uint32_t opcode, uint32_t idn, uint32_t index, uint32_t *out)
+{
+    struct utp_transfer_req_desc *utrd = (struct utp_transfer_req_desc *)ufs_list_phys;
+    struct utp_transfer_cmd_desc *ucd =
+        (struct utp_transfer_cmd_desc *)(ufs_list_phys + UFS_SLOTS * sizeof(*utrd));
+    uint64_t ucd_pa = ufs_list_phys + UFS_SLOTS * sizeof(*utrd);
+    uint8_t *upiu = ucd->command_upiu;
+    const uint8_t *r = ucd->response_upiu;
+    uint32_t value;
+
+    if (!ufs_list_phys) {
+        return ufs_fail("query not initialized", 0);
+    }
+    for (uint32_t w = 0; w < sizeof(*utrd) / 4; w++) {
+        ((volatile uint32_t *)utrd)[w] = 0;
+    }
+    utrd->command_desc_base_addr_lo = (uint32_t)ucd_pa;
+    utrd->command_desc_base_addr_hi = (uint32_t)(ucd_pa >> 32);
+    utrd->response_upiu_length = 512u / 4u;
+    utrd->response_upiu_offset = 512u / 4u;
+    /* A QUERY REQUEST has no data phase: no PRDT entry. */
+    utrd->prd_table_length = 0;
+    utrd->prd_table_offset = 0;
+    utrd->dword_2 = OCS_INVALID;
+    utrd->dword_0 = UTRD_DW0_READ;
+
+    for (uint32_t i = 0; i < 512; i++) {
+        ucd->command_upiu[i] = 0;
+        ucd->response_upiu[i] = 0;
+    }
+    upiu[0] = UPIU_QUERY_REQ;
+    upiu[2] = 0;                       /* device management, not a LUN */
+    upiu[3] = ++ufs_tag;
+    upiu[5] = (opcode == QUERY_SET_FLAG) ? QUERY_FUNC_WRITE : QUERY_FUNC_READ;
+    upiu[12] = (uint8_t)opcode;
+    upiu[13] = (uint8_t)idn;
+    upiu[14] = (uint8_t)index;
+
+    __asm__ volatile("dsb sy" ::: "memory");
+    wr32(UFS_BASE + UFSHC_UTRLDBR, 1u);
+    for (uint32_t i = 0; i < UFS_QUERY_TIMEOUT && (rd32(UFS_BASE + UFSHC_UTRLDBR) & 1u); i++) {
+        dbg_delay_ms(1);
+    }
+    if (rd32(UFS_BASE + UFSHC_UTRLDBR) & 1u) {
+        wr32(UFS_BASE + UFSHC_UTRLCLR, ~1u);
+        return ufs_fail("query timeout", opcode);
+    }
+    __asm__ volatile("dsb sy" ::: "memory");
+    wr32(UFS_BASE + UFSHC_IS, rd32(UFS_BASE + UFSHC_IS));
+
+    value = ufs_get_be32(r + 20);
+    if (out) {
+        *out = value;
+    }
+    if ((utrd->dword_2 & 0xffu) != OCS_SUCCESS || r[0] != UPIU_QUERY_RSP || r[6]) {
+        return ufs_fail("query response", (uint32_t)utrd->dword_2);
+    }
+    return 1;
+}
+
+static int ufs_complete_dev_init(void)
+{
+    uint32_t val = 0;
+
+    if (!ufs_query_flag(QUERY_SET_FLAG, QUERY_FLAG_FDEVICEINIT, 0, &val)) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < UFS_DEVINIT_POLLS; i++) {
+        if (!ufs_query_flag(QUERY_READ_FLAG, QUERY_FLAG_FDEVICEINIT, 0, &val)) {
+            return 0;
+        }
+        if (!(val & 1u)) {
+            return 1;
+        }
+        dbg_delay_ms(5);
+    }
+    return ufs_fail("fDeviceInit poll", val);
+}
+
+static int ufs_lun2_ready(void)
+{
+    static const char efi[] = "EFI PART";
+
+    if (!ufs_read_lun(UFS_MAIN_LUN, 1, 1, ufs_gpt_buf)) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < sizeof(efi) - 1; i++) {
+        if (ufs_gpt_buf[i] != (uint8_t)efi[i]) {
+            return ufs_fail("LUN2 GPT", ufs_gpt_buf[i]);
+        }
+    }
+    dbg_puts("UFS: LUN2 GPT ready\n");
+    return 1;
 }
 
 static int ufs_ready(void)
@@ -140,24 +492,15 @@ static int ufs_init(uint64_t list_phys)
 {
     uint32_t db;
 
+    /* Read-only snapshot before touching anything, for the on-screen log. */
     ufs_dump_state("as LK left it");
     /*
-     * MT6789 LK shuts UFSHCI down (HCE bit0 = 0) before the handoff. The embedded
-     * XNUP payload needs no UFS, so this is a short best-effort attempt only: if
-     * the controller does not answer quickly, ufs_list_phys stays zero and the
-     * caller boots straight from the ramdisk. Never spin here.
+     * MT6789 LK powers UFSHCI down before the handoff. Full bring-up is the
+     * hardware-proven MT6789 sequence; EVERY failure returns 0 with
+     * ufs_list_phys = 0 so the caller boots the embedded XNUP ramdisk.
+     * Never resets the board, never spins without a bound.
      */
-    {
-        uint32_t cap = rd32(UFS_BASE + UFSHC_CAP);
-
-        if (!(rd32(UFS_BASE + UFSHC_HCE) & 1) && cap && cap != 0xffffffffu) {
-            wr32(UFS_BASE + UFSHC_HCE, 1);
-            for (uint32_t i = 0; i < 200000 && !(rd32(UFS_BASE + UFSHC_HCE) & 1); i++) {
-            }
-            ufs_dump_state("after HCE attempt");
-        }
-    }
-    if (!ufs_ready()) {
+    if (!ufs_bringup() || !ufs_ready()) {
         return 0;
     }
     db = rd32(UFS_BASE + UFSHC_UTRLDBR);
@@ -180,6 +523,12 @@ static int ufs_init(uint64_t list_phys)
         return ufs_fail("list handoff failed", rd32(UFS_BASE + UFSHC_UTRLRSR));
     }
     ufs_list_phys = list_phys;
+    dbg_puts("UFS: transfer list handed off\n");
+    if (!ufs_complete_dev_init() || !ufs_lun2_ready()) {
+        ufs_list_phys = 0;
+        return 0;
+    }
+    dbg_puts("UFS: fDeviceInit done\n");
     return 1;
 }
 
