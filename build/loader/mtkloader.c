@@ -1174,6 +1174,15 @@ static uint32_t build_device_tree(uint64_t dt_pa, uint64_t rd_pa, uint64_t rd_si
 
 /* ---- leaving: Android, or a reset ---- */
 
+/* Filled in from the device tree LK handed us, before anything can choose a boot target. */
+static struct lk_chosen {
+	const char *bootargs;
+	uint32_t bootargs_len;
+	uint64_t initrd_start, initrd_end;
+} lk_chosen;
+static uint64_t lk_dtb_size;
+static int recovery_requested;
+
 static void __attribute__((noreturn)) reset_board(void)
 {
 	psci_system_reset();
@@ -1202,6 +1211,222 @@ static void __attribute__((noreturn)) halt_readable(void)
 	}
 }
 
+/* ---- what LK asked us to boot ---- */
+
+/*
+ * The flat device tree LK passes in x0 is the only handoff record available to
+ * us: LK puts the kernel command line and the ramdisk addresses in /chosen, and
+ * it is the same tree we give Android back in x0. Read it without any unaligned
+ * loads: FDT fields are big endian and the tree sits wherever LK put it.
+ */
+static uint32_t fdt_be32(const uint8_t *p)
+{
+	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+	    ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+}
+
+static int fdt_name_is(const uint8_t *strs, uint32_t size, uint32_t off, const char *want)
+{
+	uint32_t n = strlen(want);
+
+	if (off >= size || n >= size - off) {
+		return 0;
+	}
+	for (uint32_t i = 0; i < n; i++) {
+		if (strs[off + i] != (uint8_t)want[i]) {
+			return 0;
+		}
+	}
+	return strs[off + n] == 0;
+}
+
+static int fdt_node_is(const uint8_t *f, uint32_t at, uint32_t n, const char *want)
+{
+	if (n != strlen(want)) {
+		return 0;
+	}
+	for (uint32_t i = 0; i < n; i++) {
+		if (f[at + i] != (uint8_t)want[i]) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static int fdt_read_chosen(uint64_t dtb, struct lk_chosen *out)
+{
+	const uint8_t *f = (const uint8_t *)dtb;
+	uint32_t total, struct_off, str_off, struct_sz, str_sz, at, end, depth = 0;
+	int chosen = 0;
+
+	memset(out, 0, sizeof(*out));
+	if (fdt_be32(f) != 0xd00dfeedu) {
+		return 0;
+	}
+	total = fdt_be32(f + 4);
+	if (total < 40 || total > (2u << 20)) {
+		return 0;
+	}
+	struct_off = fdt_be32(f + 8);
+	str_off = fdt_be32(f + 12);
+	struct_sz = fdt_be32(f + 36);
+	str_sz = fdt_be32(f + 32);
+	if (struct_off < 40 || str_off < 40 || struct_sz < 8 || str_sz == 0 ||
+	    struct_off > total || struct_sz > total - struct_off ||
+	    str_off > total || str_sz > total - str_off) {
+		return 0;
+	}
+	lk_dtb_size = total;
+	end = struct_off + struct_sz;
+	at = struct_off;
+	while (at + 4 <= end) {
+		uint32_t tok = fdt_be32(f + at);
+
+		at += 4;
+		if (tok == 1) { /* FDT_BEGIN_NODE */
+			uint32_t n = 0;
+
+			while (at + n < end && f[at + n]) {
+				n++;
+			}
+			chosen = depth == 1 && fdt_node_is(f, at, n, "chosen");
+			depth++;
+			at += (n + 1 + 3) & ~3u;
+		} else if (tok == 2) { /* FDT_END_NODE */
+			if (depth) {
+				depth--;
+			}
+			chosen = 0;
+		} else if (tok == 3) { /* FDT_PROP */
+			uint32_t len, noff;
+			const uint8_t *val;
+
+			if (at + 8 > end) {
+				break;
+			}
+			len = fdt_be32(f + at);
+			noff = fdt_be32(f + at + 4);
+			val = f + at + 8;
+			at += 8;
+			if (len <= end - at && chosen) {
+				if (fdt_name_is(f + str_off, str_sz, noff, "bootargs")) {
+					out->bootargs = (const char *)val;
+					out->bootargs_len = len;
+				} else if (len >= 4 && fdt_name_is(f + str_off, str_sz, noff, "linux,initrd-start")) {
+					out->initrd_start = len >= 8 ? ((uint64_t)fdt_be32(val) << 32) | fdt_be32(val + 4) : fdt_be32(val);
+				} else if (len >= 4 && fdt_name_is(f + str_off, str_sz, noff, "linux,initrd-end")) {
+					out->initrd_end = len >= 8 ? ((uint64_t)fdt_be32(val) << 32) | fdt_be32(val + 4) : fdt_be32(val);
+				}
+			}
+			at += (len + 3) & ~3u;
+		} else if (tok == 4) { /* FDT_NOP */
+			continue;
+		} else { /* FDT_END */
+			break;
+		}
+	}
+	return out->bootargs != NULL;
+}
+
+static int args_say(const struct lk_chosen *c, const char *needle)
+{
+	uint32_t n = strlen(needle);
+
+	if (!c->bootargs) {
+		return 0;
+	}
+	for (uint32_t i = 0; i + n <= c->bootargs_len; i++) {
+		if (c->bootargs[i] == needle[0] && memcmp_n(c->bootargs + i, needle, n) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * A physical recovery key or "fastboot reboot recovery" makes LK write the
+ * bootloader control block in the misc partition: command[0..12] is the string
+ * "boot-recovery", and LK appends "--reason=detect_RECOVERY_KEY". Only try it
+ * when the disk is already up: on this UFS-only board it is not, and the DTB is
+ * the reliable signal.
+ */
+static int recovery_in_bcb(void)
+{
+	uint64_t lba, blocks;
+
+	if (!DISK_READY || !gpt_find("misc", &lba, &blocks)) {
+		return 0;
+	}
+	if (!disk_read(lba, 1, sector_buf)) {
+		return 0;
+	}
+	return memcmp_n(sector_buf, "boot-recovery", 13) == 0;
+}
+
+static void out_bounded(const char *s, uint32_t n)
+{
+	uint64_t screen = fbc.base;
+
+	fbc.base = 0; /* the pstore log only: the command line is too long for the panel */
+	for (uint32_t i = 0; i < n; i++) {
+		out_putc(s[i]);
+	}
+	out_putc('\n');
+	fbc.base = screen;
+}
+
+static void lk_boot_state(void)
+{
+	if (!fdt_read_chosen(lk_dtb, &lk_chosen)) {
+		out("LK dtb: no /chosen bootargs\n");
+	} else {
+		out("LK /chosen bootargs ");
+		out_dec(lk_chosen.bootargs_len);
+		out(" bytes: ");
+		out_bounded(lk_chosen.bootargs, lk_chosen.bootargs_len);
+		out("LK /chosen initrd ");
+		out_hex(lk_chosen.initrd_start);
+		out("-");
+		out_hex(lk_chosen.initrd_end);
+		out("\n");
+	}
+	recovery_requested = args_say(&lk_chosen, "androidboot.recovery=1") ||
+	    args_say(&lk_chosen, "androidboot.recovery=true") ||
+	    args_say(&lk_chosen, "androidboot.mode=recovery") ||
+	    args_say(&lk_chosen, "androidboot.bootreason=recovery") ||
+	    args_say(&lk_chosen, "boot-recovery") ||
+	    args_say(&lk_chosen, "--reason=");
+	if (!recovery_requested) {
+		recovery_requested = recovery_in_bcb();
+	}
+	out("LK boot reason: ");
+	out(recovery_requested ? "recovery\n" : "normal\n");
+}
+
+/* One prominent line, on the panel and in pstore, for whichever target we hand off to. */
+static void chain_banner(const char *what)
+{
+	uint64_t screen = fbc.base;
+
+	fbc.base = 0;
+	out("\nboot: ");
+	out(what);
+	out("\n");
+	fbc.base = screen;
+	fb_rect(0, 600, PANEL_W, 160, 0xff000000u);
+	fbc.scale = 3;
+	fbc.x = 48;
+	fbc.y = 640;
+	fbc.fg = 0xff40ff40u;
+	for (const char *c = what; *c; c++) {
+		fbcon_putc(*c);
+	}
+	fbc.scale = 2;
+	fbc.fg = 0xffffffffu;
+	fbc.x = 16;
+	fbc.y = 200;
+}
+
 static void __attribute__((noreturn)) chain_android(void)
 {
 	uint64_t base = sym_start();
@@ -1210,38 +1435,54 @@ static void __attribute__((noreturn)) chain_android(void)
 	uint64_t image_size = (hdr[5] + 7) & ~7ULL; /* Image header 0x28: Android Image length */
 
 	marker_set(0);
+	chain_banner(recovery_requested ? "Booting recovery" : "Booting Android");
+
 	/* If chainboot's res3 was zero, the Android Image header at CHAIN_OFFSET
 	 * carries the same length at +0x10. Do not fail just because res3 was lost. */
-	if (image_size == 0) {
+	if (image_size == 0 || image_size > (64ULL << 20)) {
 		uint64_t in_hdr = (uint64_t)img[4] | ((uint64_t)img[5] << 32);
 
-		if (in_hdr >= 0x1000 && in_hdr < (1ULL << 32)) {
+		if (in_hdr >= 0x1000 && in_hdr <= (64ULL << 20)) {
 			image_size = (in_hdr + 7) & ~7ULL;
 		}
 	}
-	if (image_size == 0 || img[14] != 0x644d5241u) { /* "ARM\x64" */
-		out("no Android kernel in this image: reset\n");
+	if (image_size == 0 || image_size > (64ULL << 20) || img[14] != 0x644d5241u) { /* "ARM\x64" */
+		out("no Android kernel in this image: ");
+		out(recovery_requested ? "resetting for another recovery try\n" : "reset\n");
 		out("base "); out_hex(base);
 		out(" link _start "); out_hex((uint64_t)_start);
 		out(" CHAIN_OFFSET "); out_hex(CHAIN_OFFSET);
-		out(" res3 "); out_hex(hdr[5]);
+		out(" res2 "); out_hex(hdr[5]);
 		out(" hdr_size "); out_hex((uint64_t)img[4] | ((uint64_t)img[5] << 32));
 		out(" magic "); out_hex(img[14]);
-		out("\nHalted: chain failed, cycle power to boot Android.\n");
+		out("\n");
 		diag_pause(5000);
+		/* On a recovery request a bad image must not strand the phone: let LK try again. */
+		if (recovery_requested) {
+			reset_board();
+		}
+		out("Halted: chain failed, cycle power to boot Android.\n");
 		halt_readable();
 	}
 #if TOUCH_PROBE
 	touch_hand_back();
 #endif
-	out("starting Android: base ");
+	out("starting ");
+	out(recovery_requested ? "recovery" : "Android");
+	out(": base ");
 	out_hex(base);
 	out(" image_size ");
 	out_dec(image_size);
 	out("\n");
-	/* Short readable pause before the stub overwrites this program. */
-	diag_pause(1000);
+	/* A recovery handoff must be prompt: the ramdisk is LK's, not ours. */
+	diag_pause(recovery_requested ? 100 : 1000);
 
+	/* LK put the command line and the ramdisk addresses in this tree. With the
+	 * MMU off it does not need cleaning, but do it anyway so the kernel cannot
+	 * see stale cache lines on the properties it must read to find recovery. */
+	if (lk_dtb_size >= 40 && lk_dtb_size <= (2ULL << 20)) {
+		dcache_clean_range(lk_dtb, lk_dtb_size);
+	}
 	volatile uint32_t *dst = (volatile uint32_t *)CHAIN_STUB_PA;
 	uint64_t stub_pa = sym_chain_stub(), stub_end_pa = sym_chain_stub_end();
 	const volatile uint32_t *src = (const volatile uint32_t *)stub_pa;
@@ -3372,7 +3613,7 @@ static int xnu_requested(void)
 
 static int boot_choice(void)
 {
-	int xnu = MENU_DEFAULT_XNU || xnu_requested();
+	int xnu = !recovery_requested && (MENU_DEFAULT_XNU || xnu_requested());
 	uint64_t screen = fbc.base;
 
 	fbc.base = 0;
@@ -3764,6 +4005,22 @@ void mtkloader_main(uint64_t dtb)
 	out(" pitch=");
 	out_hex(fb_pitch);
 	out("\n");
+
+	/*
+	 * LK's recovery request is in the tree it hands us, not in the pmsg zone.
+	 * Read it before any other choice so a recovery boot can never fall
+	 * through to XNU, a probe, or a halt. The ramdisk and initrd pointers are
+	 * LK's: we hand this same tree back to the kernel in x0.
+	 */
+	lk_boot_state();
+	if (recovery_requested) {
+		if (mark == MARK_RUNNING) {
+			/* Keep the log of the XNU run the watchdog cut short. */
+			rescue_log();
+			marker_set(0);
+		}
+		chain_android();
+	}
 
 	if (mark == MARK_DONE) {
 		/* XNU's log was saved when it came back; leave ramoops as it is. */
