@@ -22,7 +22,7 @@
 #include <libkern/libkern.h>
 #include <mach/mach_types.h>
 #include <pexpert/pexpert.h>
-#include <sys/hakios_input.h>
+#include <sys/board/input.h>
 #include <sys/systm.h>
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
@@ -363,7 +363,7 @@ fts_read_frame(uint8_t *rx, uint32_t length)
 	uint8_t tx[FTS_BUF_BYTES], wire[FTS_BUF_BYTES];
 
 	if (length == 0 || length + 2u > SPI_FIFO_BYTES || layout.reg == 0) {
-		x6886_trace(STAGE_READ, 1, NULL, 0);
+		x6886_trace(STAGE_SPI, 1, NULL, 0);
 		return false;
 	}
 	memset(tx, 0xff, sizeof(tx));
