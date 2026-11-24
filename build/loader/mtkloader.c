@@ -465,6 +465,9 @@ static uint32_t marker_get(void)
 
 static uint64_t fb_base;
 static uint32_t fb_pitch;
+/* Which OVL/layer OVL_SRC_CON said was composed, so we keep it enabled. */
+static uint64_t fb_ovl = OVL0_BASE;
+static uint32_t fb_layer;
 
 /* Proved from atag,videolfb: 1088 px (1080 rounded to 32) * 4 B = 4352 = 0x1100. */
 #define FB_PITCH_FALLBACK   4352u
@@ -481,7 +484,8 @@ static uint32_t fb_pitch;
 static void display_find(void)
 {
 	static const uint64_t ovl_bases[2] = { OVL0_BASE, OVL0_2L_BASE };
-	uint32_t found_base = 0, found_pitch = 0;
+	uint32_t found_base = 0, found_pitch = 0, found_layer = 0;
+	uint64_t found_ovl = OVL0_BASE;
 
 	fb_base = LK_FB_BASE;
 	fb_pitch = FB_PITCH_FALLBACK;
@@ -505,6 +509,8 @@ static void display_find(void)
 			    pitch >= PANEL_W * 4 && pitch <= FB_PITCH_MAX) {
 				found_base = addr;
 				found_pitch = pitch;
+				found_layer = layer;
+				found_ovl = ovl_bases[ovl];
 				break;
 			}
 		}
@@ -512,6 +518,8 @@ static void display_find(void)
 	if (found_pitch) {
 		fb_base = found_base;
 		fb_pitch = found_pitch;
+		fb_ovl = found_ovl;
+		fb_layer = found_layer;
 	}
 	out("fb ");
 	out_hex(fb_base);
@@ -520,30 +528,38 @@ static void display_find(void)
 	out("\n");
 }
 
-/* Opaque pixels only from here on: XNU's console writes alpha 0. */
+/*
+ * Opaque pixels only from here on: XNU's console writes alpha 0. Clear the alpha bit
+ * on the layer display_find() actually selected, NOT layer 0: on X6886 LK composes
+ * layer 1 (SRC_CON=0x2), so clearing layer 0 did nothing and forcing SRC_CON = src&1
+ * switched EVERY layer off -- the panel went black under XNU.
+ */
 static void display_alpha_off(void)
 {
-	uint32_t con = rd32(OVL0_BASE + OVL_L0_CON);
-	wr32(OVL0_BASE + OVL_L0_CON, con & ~(1u << 8));
-	out("OVL0 L0_CON ");
+	uint32_t con_off = OVL_LN_CON(fb_layer);
+	uint32_t con = rd32(fb_ovl + con_off);
+
+	wr32(fb_ovl + con_off, con & ~(1u << 8));
+	out("OVL L"); out_dec(fb_layer); out("_CON ");
 	out_hex(con);
 	out(" -> ");
-	out_hex(rd32(OVL0_BASE + OVL_L0_CON));
+	out_hex(rd32(fb_ovl + con_off));
 
 	/*
-	 * LK composes two layers: layer 0 is the picture, and layer 3 is its own overlay with the
-	 * warning it prints on an unlocked phone ("Orange State: your device has been unlocked"),
-	 * from a buffer of its own. Nothing of the system writes to that buffer, so the words stayed on
-	 * top of the home screen. Leave the overlay's layers out of what the hardware composes.
+	 * Keep exactly the layer that holds the frontbuffer; drop LK's other layers (the
+	 * unlocked-phone warning overlay). Never zero SRC_CON: with SRC_CON=0x2, src&1
+	 * was 0 and composed nothing at all.
 	 */
-	uint32_t src = rd32(OVL0_BASE + OVL_SRC_CON);
-	wr32(OVL0_BASE + OVL_SRC_CON, src & 1u);
+	uint32_t src = rd32(fb_ovl + OVL_SRC_CON);
+	uint32_t keep = (src & (1u << fb_layer)) ? (1u << fb_layer) : src;
+
+	wr32(fb_ovl + OVL_SRC_CON, keep);
 	wr32(DISP_MUTEX_EN, 1);
 	wr32(DISP_MUTEX_RUN, 1);
 	out(", SRC_CON ");
 	out_hex(src);
 	out(" -> ");
-	out_hex(rd32(OVL0_BASE + OVL_SRC_CON));
+	out_hex(rd32(fb_ovl + OVL_SRC_CON));
 	out("\n");
 }
 
@@ -2713,9 +2729,17 @@ static void __attribute__((noreturn)) run_xnu(void)
 	dcache_clean_range(dt_pa, dt_len);
 	dcache_clean_range(ba_pa, sizeof(*ba));
 	boot_banner(kva_to_pa(entry_va));
+	out("JUMPED to XNU entry ");
+	out_hex(kva_to_pa(entry_va));
+	out("\n");
+	/* Make sure the breadcrumb is in DRAM before XNU's MMU and caches come up. */
+	plog_flush();
 	out("Jumping to XNU...\n");
 	jump_to_kernel(kva_to_pa(entry_va), ba_pa);
-	__builtin_unreachable();
+	out("ERROR: returned from XNU entry\n");
+	for (;;) {
+		__asm__ volatile("wfe");
+	}
 }
 
 #if MSDC_TEST
