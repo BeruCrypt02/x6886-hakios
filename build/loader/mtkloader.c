@@ -1765,14 +1765,37 @@ static void rescue_log(void)
 	struct payload_info pi;
 	struct xnu_syms s;
 
+	/* Readable placement: 2x font at a safe margin, with room to wrap. */
+	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
+	fbc.x = 16;
+	fbc.y = fbc.top = 200;
+	fbc.scale = 2;
+	fbc.fg = 0xffffffffu;
+
 	out("\n=== mtkloader: XNU ran until the watchdog reset ===\n");
+	uint64_t base = sym_start();
+	const volatile uint64_t *h = (const volatile uint64_t *)base;
+
+	out("base "); out_hex(base);
+	out(" res2 "); out_hex(h[5]);
+	out(" res3 "); out_hex(h[6]);
+	out("\n");
 	if (!parse_payload(&pi)) {
-		out("no XNU payload\n");
+		out("no XNU payload at base+res3\n");
+		diag_pause(5000);
 		return;
 	}
+	out("kernel "); out_hex((uint64_t)pi.kernel);
+	out(" size "); out_dec(pi.kernel_size);
+	out("\n");
 	find_syms(pi.kernel, &s);
 	if (!s.log || !s.log_len || !s.log_ring_at || !s.log_wrapped) {
-		out("XNU log symbols not found\n");
+		out("XNU log symbols not found: log="); out_hex(s.log);
+		out(" len="); out_hex(s.log_len);
+		out(" ring_at="); out_hex(s.log_ring_at);
+		out(" wrapped="); out_hex(s.log_wrapped);
+		out("\n");
+		diag_pause(5000);
 		return;
 	}
 	/* osfmk/arm64/loader_return.c: a 256 KB head, then a 1 MB ring */
@@ -2362,8 +2385,8 @@ static void boot_banner(uint64_t entry_pa)
 	xnup = ph ? (uint64_t)ph : PAYLOAD_STAGE;
 
 	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
-	fbc.x = 0;
-	fbc.y = fbc.top = 0;
+	fbc.x = 16;
+	fbc.y = fbc.top = 200;
 	fbc.scale = 2;
 	fbc.fg = 0xffffffffu;
 
@@ -3318,13 +3341,12 @@ static int boot_choice(void)
 	for (const char *c = xnu ? "Booting Darwin / XNU" : "Booting Android"; *c; c++) {
 		fbcon_putc(*c);
 	}
-	fbc.scale = 1;
+	/* The scale-3 banner sat on row 640; put the cursor back in the readable
+	 * margin so the next newline cannot draw through it or clip at the edge. */
+	fbc.scale = 2;
 	fbc.fg = 0xffffffffu;
-	/* The banner was drawn at scale 3 on row 640. Leaving the cursor there made
-	 * the next newline draw a rule straight through the green text. Start the
-	 * normal-scale log below the banner. */
-	fbc.x = 0;
-	fbc.y = 760;
+	fbc.x = 16;
+	fbc.y = 200;
 	dbg_delay_ms(1000);
 	return xnu;
 }
@@ -3690,7 +3712,8 @@ void mtkloader_main(uint64_t dtb)
 	wdt_disable();
 	lk_dtb = dtb;
 	display_find();
-	fbcon_init(fb_base, fb_pitch, 0, 1);
+	/* Diagnostics at a readable size, inside a safe left/top margin. */
+	fbcon_init(fb_base, fb_pitch, 200, 2);
 	out("fb=");
 	out_hex(fb_base);
 	out(" pitch=");
@@ -3703,15 +3726,27 @@ void mtkloader_main(uint64_t dtb)
 	}
 	if (mark == MARK_RUNNING) {
 		rescue_log();
-		dbg_delay_ms(5000);
-		chain_android();
+		/* TOPRGU cut XNU short: XNU really booted and ran. Chaining Android here
+		 * sent the phone into the observed bootloop. Stop with a readable screen
+		 * so the log above can be photographed instead of being wiped by a reset. */
+		fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
+		fbc.x = 16;
+		fbc.y = fbc.top = 200;
+		fbc.scale = 2;
+		fbc.fg = 0xff40ff40u;
+		out("\n=== XNU ran, TOPRGU watchdog reset ===\n");
+		out("Halted for inspection; cycle power to boot Android.\n");
+		for (;;) {
+			wr32(TOPRGU_RESTART, TOPRGU_RESTART_KEY);
+			dbg_delay_ms(250);
+		}
 	}
 
 	plog_reset();
 #if TOUCH_PROBE
 	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
-	fbc.x = 0;
-	fbc.y = fbc.top = 0;
+	fbc.x = 16;
+	fbc.y = fbc.top = 200;
 	out("== mtkloader: touch screen probe ==\n");
 	touch_probe();
 	dbg_delay_ms(4000);
@@ -3720,8 +3755,8 @@ void mtkloader_main(uint64_t dtb)
 #if GPU_PROBE
 	if (pmsg_take(gpu_probe_flag, sizeof(gpu_probe_flag) - 1)) {
 		fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
-		fbc.x = 0;
-		fbc.y = fbc.top = 0;
+		fbc.x = 16;
+		fbc.y = fbc.top = 200;
 		out("== mtkloader: GPU probe ==\n");
 		gpu_probe();
 		dbg_delay_ms(4000);
@@ -3731,8 +3766,8 @@ void mtkloader_main(uint64_t dtb)
 #if CAM_PROBE
 	if (pmsg_take(cam_probe_flag, sizeof(cam_probe_flag) - 1)) {
 		fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
-		fbc.x = 0;
-		fbc.y = fbc.top = 0;
+		fbc.x = 16;
+		fbc.y = fbc.top = 200;
 		out("== mtkloader: CAM probe ==\n");
 		cam_probe();
 		dbg_delay_ms(4000);
@@ -3741,8 +3776,8 @@ void mtkloader_main(uint64_t dtb)
 #endif
 #if MSDC_TEST
 	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
-	fbc.x = 0;
-	fbc.y = fbc.top = 0;
+	fbc.x = 16;
+	fbc.y = fbc.top = 200;
 	out("== mtkloader: eMMC read test ==\n");
 	msdc_self_test();
 	dbg_delay_ms(4000);
@@ -3769,8 +3804,8 @@ void mtkloader_main(uint64_t dtb)
 	}
 #endif
 	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
-	fbc.x = 0;
-	fbc.y = fbc.top = 0;
+	fbc.x = 16;
+	fbc.y = fbc.top = 200;
 	fbc.fg = 0xff40ff40u;
 	out("== mtkloader: Darwin/XNU on " HAKIOS_BOARD_NAME " (" HAKIOS_SOC_NAME ") ==\n");
 	fbc.fg = 0xffffffffu;
