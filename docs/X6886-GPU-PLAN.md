@@ -80,6 +80,9 @@ frequencies.
 | `refs/heliodarwin/wiki/MaliMetal-Driver.md` | Full stack: Metal frontend, AIR compiler, PanVK v9 JM backend, XNU IOKit transport. Records BO limit at 128, `CTR_EL0` access fix, 64-bit page-to-address fix, FP16 gate, MPS and MRT gates. Correct pixels still unvalidated there. | Reuse as the rendering path. Treat every recorded failure as a gate to reproduce. |
 | `refs/heliodarwin/MaliMetal/` | Native device, shader translation and Vulkan bridge source | Port target |
 | `refs/heliodarwin/xnu/patches/0147`, `0148`, `0182`, `0178` and the 0208-0212 series | GPU power-on, MFG domains, MTCMOS, PWRAP and timestamp work | Source for XNU kernel-side bring-up |
+| `refs/heliodarwin/MaliMetal/Vulkan/` | Pinned Mesa build scripts: `prepare_mesa.py`, `build_mesa.py`, `build_mesa_wsl.py`, `apply_xnu.py`, `package_icd.py`, plus the XNU kernel module glue in `MaliKmodDarwin.c` | Concrete build path for the selected backend |
+| `refs/klios716/gpu/mali-sweet/` and `refs/klios716/gpu/mesa-ios/` | Mesa 25.0.7 cross-build for iOS with Gallium Panfrost, a vendored Panfrost DRM ioctl header and a libdrm stand-in. GL and GLES contexts without EGL or X11. | Fallback for OpenGL ES. It does not supply a Metal frontend. Keep it behind a separate boot arg. |
+| `refs/akita/drivers/gpu/hakios.akita_mali.c` | Mali-G715 on Pixel 8a, architecture 11.8, Command Stream Frontend and `mali_csffw-r54p2.bin` | Wrong generation and wrong submission model. Do not copy its firmware path to X6886. |
 | `refs/hakios-common/components/metal/docs/air.md` | AIR to NIR compiler targeting freedreno `ir3` on Adreno | Not a Mali path. It targets a different GPU vendor and instruction set. |
 | `refs/hakios-mtk/xnu/files/bsd/dev/redwood_mali.c` | Mali-G52 Bifrost on X6826B, GPU base `0x13040000`, MFG config `0x13000000` | Wrong generation and wrong base. Useful for sequence structure only. |
 | `refs/oosexgang-xnu27/kernel/overlay/bsd/dev/mtk_mali.c`, `loader/mtkmali.h` | Mali-G52 Bifrost bring-up on MT6768; branches `mali-native`, `malinative` | Wrong generation. Useful for register-style reference only. |
@@ -95,7 +98,7 @@ frequencies.
 | JM register programming | REFERENCE ONLY | HelioDarwin confirms JM completion on X676C; GPU_ID not read on X6886 |
 | Job submission and GPU MMU | REFERENCE ONLY | HelioDarwin implements 4 KiB GPU pages and per-client address spaces; XNU CPU pages are 16 KiB |
 | MediaTek IOMMU | GAP | GPU node has no `iommus`; M4U has no phandle; display IOMMU is a separate block |
-| Shader translation | REFERENCE ONLY | HelioDarwin uses pinned Mesa v9 XML and PanVK; hakios-common path is Adreno only |
+| Shader translation | REFERENCE ONLY | HelioDarwin uses pinned Mesa v9 XML and PanVK. klios716 carries Mesa Panfrost GL/GLES without a Metal frontend. hakios-common path is Adreno only. |
 | Metal frontend and IOKit | REFERENCE ONLY | HelioDarwin reaches backboardd and SpringBoard paths; correct frames unvalidated |
 | Firmware | READY | JM needs no CSF firmware. No firmware file is missing from the dump. |
 | Thermal hook | REFERENCE ONLY | 85 C passive and 113.5 C critical trips are in FDT; no XNU thermal driver |
