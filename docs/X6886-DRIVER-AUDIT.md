@@ -26,13 +26,13 @@ identity and driver gaps.
 | Component | Sensor / IC from stock | Stock evidence | XNU driver in refs | Readiness | Missing driver / register mismatch / known bug | Face ID relevance |
 | --- | --- | --- | --- | --- | --- | --- |
 | Panel | BOE `nt37706a` active; TM `vtdr6126a` spare | `fdt.dts:69`, `:6538-6574`; `modules.txt:391-392`; `all_files.txt:11315,11422` | None for DSI init; `refs/oosexgang-xnu27/docs/drivers.md:21-23` only flips LK's OVL0 layer | Not ported | Missing: no DSI/DSC init sequence in any ref. Mismatch: LK framebuffer address disputed. Bug: `atag,videolfb` still names a 60 Hz JDI panel | High: animation surface |
-| Touch | FocalTech FTS on `spi1.0`; DTB string `ft3682g`, loaded module `focaltech_ft3683g` | `fdt.dts:1608-1609,4486-4520`; `modules.txt:70-71`; `all_files.txt:1067` | `redwood_goodix.c:2-20` FTS 5.x over Qualcomm GENI; `redwood_tcm.c:2-22` TD4160 on MT6768 SPI2 | Not ported | Missing: no MT6789 SPI FTS driver. Mismatch: GENI vs `mediatek,mt6765-spi`; 116448-byte redwood FW vs stock blob. Bug: FT3682G/FT3683G naming conflict | Medium: fallback input |
+| Touch | FocalTech FTS on `spi1.0`; DTB string `ft3682g`, loaded module `focaltech_ft3683g` | `fdt.dts:1608-1609,4486-4520`; `modules.txt:70-71`; `all_files.txt:1067` | `board/fts.c:1-11` FT3658U over GENI; `fts_protocol.h:1-14`; X676C MT6789 I2C driver at `Input-and-HID.md:26,39,43`; `redwood_goodix.c:2-20` FTS 5.x over GENI | Not ported | Missing: no MT6789 **SPI** FTS driver. Mismatch: all refs use GENI or MT6789 I2C, this board uses `spi1`; 116448-byte redwood FW vs stock blob. Bug: FT3682G/FT3683G naming conflict | Medium: fallback input |
 | Rear camera | Sony `imx882`, camera 0, 50 MP | `fdt.dts:1912,4690-4697`; `X6886-specs.txt:121-147`; `all_files.txt:755-760,1265+` | `redwood_mtkcam.c:2-24` (S5K JN1); `redwood_mtkcam_skel.c:3-14` platform table | Skeleton only | Missing: sensor register tables, SENINF/CAMSV values. Mismatch: different sensor, different PMIC rails. Bug: none observed | None |
 | Front camera | GalaxyCore `gc13a0ff`, camera 1, 13.1 MP | `fdt.dts:1913,4848-4856`; `X6886-specs.txt:148-174`; `all_files.txt:1174-1247` | Same skeleton, no gc13a0 table | Skeleton only | Missing: front sensor table, reset/MCLK pins, front CSI lane map. Bug: spec PDF `Supported` line names gc32e1, which is not the fitted sensor | Critical: image source |
 | Optical fingerprint | Goodix under-display sensor, `tran_fp_legacy` on `spi3.0`; TEE via `mcDrvModule` | `fdt.dts:4558-4582,4605-4607`; `modules.txt:316-317,351`; `all_files.txt:9734,6394` | None. `redwood_goodix.c` is a touch driver, not a fingerprint driver | Not ported | Missing: FOD SPI driver, HBM spot control, trustlet interface. Mismatch: Goodix touch vs Goodix optical fp. Bug: none observed | None: separate biometric |
 | Audio / mics | MT6366 codec + Awinic `aw87xxx_pa` amps, 2 devices | `fdt.dts:1777,3228-3229,5172-5180,5582,7627`; `modules.txt:147-150` | `redwood_sound.c:2-8`, `redwood_mic.c:2-8` target Qualcomm ADSP | Not ported | Missing: MT6366 AFE path. Mismatch: Qualcomm DSP services vs MediaTek AFE. Bug: none observed | None |
 | Wi-Fi / BT / GPS | CONNSYS MT6789, `wlan_drv_gen4m_6789`, `bt_drv_connac1x`, `wmt_drv` | `fdt.dts:6955-6970,7571-7581,4477-4483`; `modules.txt:1-4,112,166-167` | `redwood_connsys.c:2-22`, `redwood_mtkwifi.c:2-16`, `redwood_mtkbt_skel.c:2-20` for MT6768 + MT6631 | Skeleton for BT only | Missing: MT6789 CONNSYS and Wi-Fi platform tables. Mismatch: different `reg` block list and firmware. Bug: none observed | None |
-| GPU | Mali-G57 MC2, Valhall v9 Job Manager, `GPU_ID 0x90930010` from the X676C reference | `modules.txt:199-201`; `all_files.txt:11816`; `refs/heliodarwin/wiki/MT6789-GPU-Power-Sequence.md:3,19` | `redwood_mali.c:2-17` for Mali-G52 Bifrost | Not ported | Missing: Valhall JM power sequence and job submission. Mismatch: Bifrost vs Valhall; JM has no CSF firmware. Bug: none observed | Low: animation compositing |
+| GPU | Mali-G57 MC2, Valhall v9 Job Manager, `GPU_ID 0x90930010` from the X676C reference | `modules.txt:199-201`; `all_files.txt:11816`; `refs/heliodarwin/wiki/MT6789-GPU-Power-Sequence.md:3,19` | `MaliValhallHw.h:1-12` register map cross-checked against `mali_kbase_mt6789.ko`; JM transport patch `0189-...` compiled, unvalidated; `redwood_mali.c:2-17` is Bifrost | Not ported into this tree | Missing: no integrated X6886 JM driver. Mismatch: Bifrost vs Valhall; JM has no CSF firmware. Bug: patch 0189 says hardware execution remains unvalidated | Low: animation compositing |
 | Battery / charging | MT6366 PMIC, `sc8548` master charger, `sc8950` secondary | `fdt.dts:3228-3229,5125-5133,5245-5255`; `modules.txt:43,47,52,147` | `redwood_mtkbatt.c:2-25` for MT6358 gauge | Not ported | Missing: MT6366 gauge and both charger drivers. Mismatch: different PMIC register map. Bug: reference has no charger chip driver at all | Low: power state |
 | Buttons | `kp@10010000`, map `0x73`/`0x72`; `mt6366keys` | `fdt.dts:4002-4012,3356-3357`; `modules.txt:337-338,368`; `input.txt:1-5` | `redwood_mtkkeys.c:2-12`, same keypad base and map | Closest to reuse | Missing: X6886-specific enable and PMIC key bit. Mismatch: reference reads MT6358; board has MT6366. Bug: none observed | Low: passcode fallback |
 | Vibrator | `regulator-vibrator`, 3.0-3.5 V, `vib-supply` | `fdt.dts:2333-2340`; `modules.txt:336` | `redwood_haptic.c:2-20` for AW86927 at I2C 0x5a | Not ported | Missing: PWM vibrator driver. Mismatch: no AW86927 on this board; `aw87xxx_pa` at 0x58/0x59 are audio amps. Bug: none observed | Low: haptic feedback |
@@ -88,12 +88,24 @@ Flags:
 
 Flags:
 
-- MISSING DRIVER. No XNU driver talks to `spi1` on MT6789. The closest FTS
-  code, `refs/hakios-mtk/xnu/files/bsd/dev/redwood_goodix.c:2-20`, reads an
-  FTS report at register `0x01` using FTS 5.x framing: `0xC1` for read, `0xC0`
-  for write, two-byte CRC-16/Kermit. It runs over Qualcomm GENI
-  (`redwood_goodix.c:272,352-392`), which has no counterpart in the MediaTek
-  DTB.
+- MISSING DRIVER. No XNU driver talks to `spi1` on MT6789. Four references
+  exist, none of them on this bus:
+  - `refs/xnu-12377-hakios/bsd/dev/board/fts.c:1-11` handles an FT3658U, chip
+    ID `0x5652`, over Qualcomm GENI. `fts_protocol.h:1-14` verifies the report
+    starts at register `0x01`, uses a 7-byte read prefix and a CRC.
+  - `refs/hakios-mtk/xnu/files/bsd/dev/redwood_goodix.c:2-20` reads an FTS
+    report at register `0x01` with `0xC1` read, `0xC0` write, CRC-16/Kermit over
+    GENI (`redwood_goodix.c:272,352-392`).
+  - `refs/heliodarwin/wiki/Input-and-HID.md:26,39,43` documents a working
+    MT6789 driver for an FT5452J at I2C `0-0038`, module `ft3519_common`,
+    report at register `1`, six-byte contact records, XNU patch
+    `0192-x676c-real-touch-and-keys.patch`.
+  - `refs/klios716/xnu/patches/0112-kl7-fts3519-touch.patch:1-20` adds an FT3519
+    driver for another MT6789 board.
+
+  The report decoding is reusable. The I2C and GENI transports are not: the
+  X6886 controller sits behind `mediatek,mt6765-spi` at `0x11010000`
+  (`fdt.dts:4486-4493`).
 - REGISTER MISMATCH. `redwood_focaltech_fw.h:1,4,6` embeds 116448 bytes from
   `focaltech_ts_fw_m20.bin`. The stock X6886 blob is a different file. Compare
   sizes and headers before reusing any FW path.
@@ -218,11 +230,21 @@ Flags:
 
 Flags:
 
-- MISSING DRIVER. No Valhall JM driver in XNU. `redwood_mali.c:2-17` covers a
-  Mali-G52 Bifrost part and states it needs no firmware. `redwood_mali.c:53-54`
-  exposes a `kern.redwood.mali` progress counter; `:480-501` runs a write job
-  in identity mode and through GPU page tables. That sequence belongs to
-  Bifrost.
+- MISSING DRIVER. No Valhall JM driver is integrated in this tree. Two
+  references exist:
+  - `refs/heliodarwin/MaliMetal/MaliValhallHw.h:1-12` is a register map for
+    Mali-G57 MC2 Valhall v9 JM, cross-checked against this phone's
+    `mali_kbase_mt6789.ko`. GPU MMIO base is `0x13000000`. Register offsets
+    start at `:17-21`.
+  - HelioDarwin patch `0189-x676c-malimetal-jm-gpu-userclient.patch:1-10`
+    adds pinned buffers, GPU address spaces, serialized JM jobs and fault
+    status. Its own header says "Hardware execution remains unvalidated" and
+    that it compiled to arm64 objects but was never flashed.
+
+  `redwood_mali.c:2-17` covers a Mali-G52 Bifrost part and states it needs no
+  firmware. `redwood_mali.c:53-54` exposes a `kern.redwood.mali` progress
+  counter; `:480-501` runs a write job in identity mode and through GPU page
+  tables. That sequence belongs to Bifrost.
 - REGISTER MISMATCH. Different architecture, different power domains,
   different job-slot registers.
 - KNOWN BUG. Do not search for CSF microcode or use a CSF submission path. The
@@ -271,12 +293,12 @@ Flags:
 
 | Repo | Contains | Does not contain for X6886 |
 | --- | --- | --- |
-| `refs/xnu-12377-hakios` | Base XNU 12377 kernel, Mach, BSD, IOKit (`README.md:1-13`) | Any MT6789 peripheral driver |
+| `refs/xnu-12377-hakios` | Base XNU 12377 kernel, Mach, BSD, IOKit (`README.md:1-13`), plus `bsd/dev/board/fts.c`, `goodix.c`, `ft5x06.c`, `geni_spi.h` | MT6789-specific bus logic. Those touch drivers use Qualcomm GENI and RPMh, not MediaTek SPI |
 | `refs/hakios-mtk` | `xnu/files/bsd/dev/redwood_*.c`: FTS touch, TD4160 touch, MT6768 camera, Bifrost Mali, MT6768 CONNSYS, MT6358 battery, keypad | MT6789 DSI, SPI-FTS, Valhall JM, MT6366 audio, MT6366 gauge, optical FOD |
 | `refs/oosexgang-xnu27` | Feature and boot-arg table (`docs/drivers.md:9-19`), camera skeleton guide (`docs/camera-mtk-porting.md:8-21`) | Phone-independent halves only: BT and camera skeletons (`docs/drivers.md:19`) |
 | `refs/unixnu-mt6789` | CPU affinity, GIC, timer DTS and config (`README.md:8-16`, `soc.toml`) | Display, touch, camera, GPU, radios, power. Its `AGENTS.md:1-3` forbids guessing registers |
-| `refs/heliodarwin` | MT6789 GPU notes and X676C display notes (`wiki/MT6789-GPU-Power-Sequence.md:3,19`; `wiki/Display-Pipeline.md:12-15`) | An X6886 board. Framebuffer addresses differ from the task-supplied value |
-| `refs/klios716`, `refs/ios-jellystar` | Other HakiOS device trees and patch sets | No X6886 driver contribution found for the components above |
+| `refs/heliodarwin` | MT6789 GPU notes, X676C display notes (`wiki/MT6789-GPU-Power-Sequence.md:3,19`; `wiki/Display-Pipeline.md:12-15`), Valhall JM register map (`MaliMetal/MaliValhallHw.h:1-12`), MT6789 I2C FTS driver (`wiki/Input-and-HID.md:26,39,43`) | An X6886 board. Framebuffer addresses differ from the task-supplied value; its touch is I2C, ours is SPI |
+| `refs/klios716`, `refs/ios-jellystar` | Other HakiOS device trees and patch sets, including `klios716/xnu/patches/0112-kl7-fts3519-touch.patch` for an MT6789 FT3519 | No X6886 driver contribution found for the components above |
 
 ## Bug-prevention checklist
 
@@ -317,7 +339,10 @@ Flags:
 - nt37706a DSI init sequence and DSC parameters. Source: the panel `.ko` at
   `all_files.txt:11315`, not the DTB.
 - FocalTech register map for ft3682g/ft3683g. Needs a chip ID read or the
-  vendor Linux source.
+  vendor Linux source. The MT6789 I2C report decoder in HelioDarwin is a
+  starting point, not the X6886 SPI transport.
+- Hardware validation of the Valhall JM transport in HelioDarwin patch 0189.
+  The patch compiled but was never flashed.
 - Goodix optical FOD part number and register map. The dump proves the vendor
   and the bus, not the exact part.
 - MT6789 CONNSYS firmware filenames and load order.
