@@ -3,6 +3,14 @@ tools/*
 !tools/*.py
 !tools/*.c
 !tools/README.md
+tools/root/
+tools/bin/
+tools/qemu/
+tools/debs/
+tools/*.deb
+tools/gh*/
+tools/gh.tar.gz
+tools/*.apk
 refs/*/
 build/*
 !build/README.md

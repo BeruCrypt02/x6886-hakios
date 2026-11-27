@@ -7,7 +7,8 @@
 # init as a platform binary so launchd's job runner may exec it.
 set -euo pipefail
 
-ROOT=/home/berucrypt00/x6886-hakios
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/env.sh"
 REPO=$ROOT/refs/hakios-common
 IOS=$ROOT/ios27
 L=$ROOT/tools/root/usr/lib/llvm-20/bin

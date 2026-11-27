@@ -3,8 +3,9 @@
 import hashlib
 import struct
 import sys
+from pathlib import Path
 
-ROOT = "/home/berucrypt00/hakios-x6886"
+ROOT = str(Path(__file__).resolve().parent.parent)
 kernel_path = ROOT + "/refs/xnu-12377-hakios/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837"
 ramdisk_path = ROOT + "/ios27/flashboot.apfs"
 ramdisk1_path = ROOT + "/ios27/root26-darwin.apfs"

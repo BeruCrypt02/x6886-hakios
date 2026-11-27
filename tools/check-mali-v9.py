@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_SOURCE = (
-    Path(__file__).resolve().parent.parent / "kernel" / "x6886" / "hakios.x6886_mali.c"
+    Path(__file__).resolve().parent.parent / "drivers" / "gpu" / "hakios.x6886_mali.c"
 )
 
 FUNCTION_NAMES = (

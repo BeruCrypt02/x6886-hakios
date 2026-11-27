@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
-ROOT=/home/berucrypt00/hakios-x6886
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-source ./env.sh
+source "$ROOT/env.sh"
 export XNU_SRC="$ROOT/refs/xnu-12377-hakios"
 export XNUDEPS="$ROOT/refs/xnu-12377-hakios-deps"
 export CC=xnu-clang CXX=xnu-clang++

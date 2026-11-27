@@ -10,15 +10,15 @@ import struct
 import subprocess
 import sys
 
-ROOT = "/home/berucrypt00/x6886-hakios"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMG = f"{ROOT}/build/boot-HakiOS-X6886.img"
-LOADER = f"{ROOT}/build/loader/mtkloader.bin"
+LOADER = f"{ROOT}/devices/x6886/prebuilt/mtkloader.bin"
 ELF = "/tmp/opencode/elf-final2/mtkloader.elf"
 READELF = f"{ROOT}/tools/root/usr/lib/llvm-20/bin/llvm-readelf"
 NM = f"{ROOT}/tools/root/usr/lib/llvm-20/bin/llvm-nm"
-START_S = f"{ROOT}/build/loader/start.S"
-PLATFORM_H = f"{ROOT}/build/boards/x6886/hakios_platform.h"
-MTKDBG_H = f"{ROOT}/build/loader/mtkdbg.h"
+START_S = f"{ROOT}/xnuloader/start.S"
+PLATFORM_H = f"{ROOT}/devices/x6886/configs/hakios_platform.h"
+MTKDBG_H = f"{ROOT}/xnuloader/mtkdbg.h"
 CHAIN_OFFSET = 0x80000
 PART = 64 << 20
 PAGE = 4096
@@ -67,7 +67,7 @@ while payload_off and pos + 24 <= len(blob):
         break
     entries.append((name, size))
     pos += 24 + size + (-size % 16)
-stock = open("/home/berucrypt00/otadump/images/boot.img", "rb").read()
+stock = open(os.path.join(os.environ.get("DUMP_ROOT", "/home/berucrypt00/otadump"), "images/boot.img"), "rb").read()
 sk = struct.unpack_from("<I", stock, 0x08)[0]
 sblob = stock[PAGE:PAGE + sk]
 if sblob[:2] == b"\x1f\x8b":

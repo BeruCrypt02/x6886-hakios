@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=/home/berucrypt00/x6886-hakios
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/env.sh"
 UPSTREAM=$ROOT/refs/hakios-common
 KERNEL=$ROOT/refs/xnu-12377-hakios/BUILD/obj/mach.development.bcm2837
 SHELL_ROOT=$ROOT/build/qemu/root.img

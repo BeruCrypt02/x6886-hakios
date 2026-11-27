@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=/home/berucrypt00/x6886-hakios
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/env.sh"
 REPO=$ROOT/refs/hakios-common
 IOS=$ROOT/ios27
 
@@ -42,7 +43,7 @@ fi
 bash darwin/userland/inj26.sh
 bash darwin/userland/root26-darwin.sh
 
-bash "$ROOT/scripts/fix-ramdisk.sh"
+bash "$ROOT/tools/fix-ramdisk.sh"
 
 LAUNCHDAEMONS="$IOS/jobs26" WORK="$IOS/image-tree-prune" \
   python3 darwin/tools/mkimage26.py --prune "$IOS/system27-prune.apfs"
