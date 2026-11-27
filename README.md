@@ -94,4 +94,4 @@ Board facts: [devices/x6886/README.md](devices/x6886/README.md). SoC facts:
 Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CONTRIBUTORS.md](CONTRIBUTORS.md). Imported XNU and HakiOS material keeps
 its upstream licence; this repository's notes and scripts are provided for
 bring-up research. See [NOTICE.md](NOTICE.md), [LICENSES/MIT.txt](LICENSES/MIT.txt),
-and [APSL-2.0.txt](APSL-2.0.txt).
+and [LICENSE.APSL](LICENSE.APSL).
