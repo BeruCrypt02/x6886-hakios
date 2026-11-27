@@ -1,8 +1,7 @@
 # Contributors
 
-| Contributor | Role |
-| --- | --- |
-| Yousef / Beru (@BeruCrypt02) | Project owner; device access, board evidence, flashing decisions, bring-up direction |
+Beru — @BeruCrypt02 on GitHub, @BeruCrypt00 on Telegram. The phone, the dumps, and the call on every
+device write are his.
 
-Contributions must keep the offline verifier passing and must keep large
-binary inputs out of git. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Hermes — build scripts, verification, and bring-up notes. The rest is in the
+commit history.
