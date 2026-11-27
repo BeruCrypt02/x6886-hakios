@@ -1,0 +1,144 @@
+<#
+One xnu boot attempt on the X676C, end to end:
+  CI kernel -> ADT + payload -> shim boot.img -> boot_a (slot A, 1 try)
+  -> reboot -> LK falls back to Android -> pstore log to out/xnu-<run>.log
+
+usage: tools/boot-xnu.ps1 -Run <actions run id> [-BootArgs "..."]
+Needs: gh, adb with root (Magisk), Python + ziglang.
+#>
+param(
+    [Parameter(Mandatory)] [ValidatePattern('^[0-9]+$')] [string]$Run,
+    [string]$Adb = "adb",
+    [string]$Serial = "",
+    [string]$DeviceIdentity = "",
+    [string]$StaticTrustCache = "",
+    [ValidatePattern('^(?:/[A-Za-z0-9_.-]+)+$|^[A-Za-z0-9_.-]+$')] [string]$Su = "su",
+    [ValidateRange(1, 120)] [int]$ReturnWaitMinutes = 20,
+    [string]$BootArgs = "debug=0xc serial=3 cpus=6 keepsyms=1 -v -enable_kprintf_spam wdt=-1 wdt_test=no_user_checkin rd=ufs ufsroot=iosroot ufsrw=iosroot unentitled_ios_sim_launch=1 ignition_level=1 launchd_unsecure_cache=1 sweetsample=- ufsbeat=64 sweetscan=backboardd,SpringBoard,PosterBoard sweetnull=launchd,dyld,init,backboardd,SpringBoard,lsd,containermanagerd sweetfb_noconsole=1 sweetfb_native=1 sweetfb_stayon=1"
+)
+$ErrorActionPreference = "Stop"
+$repo = "squeeeezy/HelioDarwin"
+$x676c = Split-Path -Parent $PSScriptRoot
+$out = Join-Path $x676c "shim\out"
+$adb = (Get-Command $Adb -CommandType Application -ErrorAction Stop).Source
+$adbArguments = @()
+if ($Serial) { $adbArguments = @('-s', $Serial) }
+New-Item -ItemType Directory -Force $out | Out-Null
+
+function Phone([string]$cmd) {
+    & $adb @adbArguments shell $Su -c "$cmd"
+    if ($LASTEXITCODE) { throw "ADB root command failed ($LASTEXITCODE)" }
+}
+function Push-Lf([string]$path, [string]$text) {
+    [IO.File]::WriteAllText($path, ($text -replace "`r`n", "`n"))
+}
+
+# 1. kernel from CI
+$k = Join-Path $out "k-$Run"
+if (-not (Test-Path "$k\kernel.development.sweet")) {
+    gh run watch $Run -R $repo --exit-status --interval 30 *> $null
+    if ($LASTEXITCODE) { throw "build $Run failed: gh run view $Run -R $repo --log-failed" }
+    gh run download $Run -R $repo -n xnu-kernel -D $k
+    if ($LASTEXITCODE) { throw "kernel artifact download failed" }
+}
+
+# 2. ADT, payload, boot image
+python -I (Join-Path $x676c "tools\verify-startup.py") "$k\kernel.development.sweet"
+if ($LASTEXITCODE) { throw "Kernel startup policy verification failed" }
+& $adb @adbArguments wait-for-device
+if ($LASTEXITCODE) { throw "ADB identity capture wait failed" }
+if (((Phone 'id -u') -join '').Trim() -ne '0' -or
+    ((Phone 'getprop ro.boot.slot_suffix') -join '').Trim() -ne '_b') {
+    throw "Boot identity and deployment require rooted Android slot B"
+}
+if (-not $DeviceIdentity) {
+    $DeviceIdentity = Join-Path $out 'device-identity.json'
+    $identityArguments = @('--adb', $adb, '--su', $Su, '--out', $DeviceIdentity)
+    if ($Serial) { $identityArguments += @('--serial', $Serial) }
+    python -I (Join-Path $x676c "tools\read-device-identity.py") @identityArguments
+    if ($LASTEXITCODE) { throw "Factory identity unavailable; no boot image flashed" }
+}
+try {
+    $identityData = Get-Content -LiteralPath $DeviceIdentity -Raw -ErrorAction Stop |
+        ConvertFrom-Json -ErrorAction Stop
+} catch {
+    throw "Private device identity could not be read; no boot image flashed"
+}
+if (-not $identityData.wifi_mac -or -not $identityData.bluetooth_mac -or -not $identityData.device_serial) {
+    throw "Boot identity must contain both provisioned addresses and device binding"
+}
+$connectedIdentitySerial = & $adb @adbArguments get-serialno
+if ($LASTEXITCODE -or $connectedIdentitySerial.Trim() -ne $identityData.device_serial) {
+    throw "Private identity belongs to another device; no boot image flashed"
+}
+if (-not $StaticTrustCache) {
+    $StaticTrustCache = Join-Path $x676c 'research\20H392-static.trustcache'
+}
+if (-not (Test-Path -LiteralPath $StaticTrustCache -PathType Leaf)) {
+    throw "Verified 20H392 static trust cache required; supply -StaticTrustCache before deployment"
+}
+python -I (Join-Path $x676c "tools\mkadt.py") "$out\x676c.adt" --device-identity $DeviceIdentity --static-trust-cache $StaticTrustCache
+if ($LASTEXITCODE) { throw "ADT build failed" }
+python -I (Join-Path $x676c "tools\mkpayload.py") "$k\kernel.development.sweet" "$out\x676c.adt" "$out\payload.bin" --cmdline $BootArgs
+if ($LASTEXITCODE) { throw "payload build failed" }
+python -I (Join-Path $x676c "shim\build.py") "$out\payload.bin"
+if ($LASTEXITCODE) { throw "boot image build failed" }
+
+# 3. boot_a + slot A with one try (misc boot_control, see tools/bootctl_block.py)
+& $adb @adbArguments wait-for-device
+if ($LASTEXITCODE) { throw "ADB wait failed" }
+if (((Phone 'getprop ro.boot.slot_suffix') -join '').Trim() -ne '_b') {
+    throw "Android fallback slot changed; no boot image flashed"
+}
+Phone "dd if=/dev/block/by-name/misc of=/data/local/tmp/bctl.bin bs=1 skip=2048 count=32 2>/dev/null"
+& $adb @adbArguments pull /data/local/tmp/bctl.bin "$out\bctl_now.bin" | Out-Null
+if ($LASTEXITCODE) { throw "boot control read failed" }
+$hex = [BitConverter]::ToString([IO.File]::ReadAllBytes("$out\bctl_now.bin")).Replace("-", "")
+python -I (Join-Path $x676c "tools\bootctl_block.py") set-active a $hex "$out\bctl_slot_a.bin" 1
+if ($LASTEXITCODE) { throw "bad boot_control block" }
+& $adb @adbArguments push "$out\shim-boot.img" /data/local/tmp/shim-boot.img | Out-Null
+if ($LASTEXITCODE) { throw "boot image transfer failed" }
+& $adb @adbArguments push "$out\bctl_slot_a.bin" /data/local/tmp/bctl_slot_a.bin | Out-Null
+if ($LASTEXITCODE) { throw "boot control transfer failed" }
+$flash = Join-Path $out "flash_a.sh"
+Push-Lf $flash @'
+set -e
+T=/data/local/tmp
+sz=$(stat -c %s $T/shim-boot.img)
+want=$(sha1sum $T/shim-boot.img | cut -d' ' -f1)
+dd if=$T/shim-boot.img of=/dev/block/by-name/boot_a bs=4096 conv=fsync 2>/dev/null
+[ "$(head -c $sz /dev/block/by-name/boot_a | sha1sum | cut -d' ' -f1)" = "$want" ] || { echo "boot_a VERIFY FAILED"; exit 1; }
+dd if=$T/bctl_slot_a.bin of=/dev/block/by-name/misc bs=1 seek=2048 count=32 conv=notrunc,fsync 2>/dev/null
+[ "$(dd if=/dev/block/by-name/misc bs=1 skip=2048 count=32 2>/dev/null | sha1sum | cut -d' ' -f1)" = "$(sha1sum $T/bctl_slot_a.bin | cut -d' ' -f1)" ] || { echo "misc VERIFY FAILED"; exit 1; }
+rm -f $T/bctl.bin $T/flash_a.sh
+sync
+echo "flashed boot_a ($sz bytes), slot A 1 try"
+'@
+& $adb @adbArguments push $flash /data/local/tmp/flash_a.sh | Out-Null
+if ($LASTEXITCODE) { throw "flash script transfer failed" }
+$r = Phone "sh /data/local/tmp/flash_a.sh"
+$r
+if (-not ($r -match "flashed")) { throw "flash failed" }
+
+# 4. boot it, wait for the fallback to Android, collect pstore
+& $adb @adbArguments reboot
+if ($LASTEXITCODE) { throw "ADB reboot failed" }
+"$(Get-Date -f HH:mm:ss) rebooted into the shim"
+Start-Sleep 20
+$deadline = (Get-Date).AddMinutes($ReturnWaitMinutes)
+while ((Get-Date) -lt $deadline) {
+    $state = try { & $adb @adbArguments get-state 2>$null } catch { "" }
+    if ($state -eq 'device') { break }
+    Start-Sleep 3
+}
+for ($i = 0; $i -lt 60; $i++) {
+    $bc = try { & $adb @adbArguments shell getprop sys.boot_completed 2>$null } catch { "" }
+    if ($bc -match '1') { break }
+    Start-Sleep 2
+}
+if ($bc -notmatch '1') { throw "Android did not finish booting within the return window" }
+$log = Join-Path $out "xnu-$Run.log"
+python -c 'import pathlib, subprocess, sys; pathlib.Path(sys.argv[1]).write_bytes(subprocess.check_output(sys.argv[2:]))' $log $adb @adbArguments exec-out $Su -c 'cat /sys/fs/pstore/console-ramoops-0'
+if ($LASTEXITCODE) { throw "pstore capture failed; Android return is not confirmed" }
+"$(Get-Date -f HH:mm:ss) back in Android (slot $(& $adb @adbArguments shell getprop ro.boot.slot_suffix 2>$null)), log: $log"
+Get-Content $log -Tail 60

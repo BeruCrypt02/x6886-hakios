@@ -1,4 +1,8 @@
-tools/
+tools/*
+!tools/*.sh
+!tools/*.py
+!tools/*.c
+!tools/README.md
 refs/*/
 build/*
 !build/README.md
@@ -12,6 +16,8 @@ build/loader/*
 out/
 *.img
 *.bin
+!devices/x6886/prebuilt/mtkloader.bin
+!devices/x6886/prebuilt/firmware/*.bin
 *.apfs
 *.dtb
 *.log
