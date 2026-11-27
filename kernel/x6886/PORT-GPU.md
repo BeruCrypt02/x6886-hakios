@@ -1,14 +1,28 @@
 # X6886 Mali GPU port manifest
 
-Branch: `feat/x6886-real-port`. 100% offline: no adb, no fastboot, no kernel/XNU build, no flash.
-Only driver/manifest files were written; no Makefile, build file, board table, other driver,
-modem or NVRAM file was touched.
+Branch: `feat/x6886-real-port`. All work is local/offline: no adb, no fastboot,
+no flash, no slot switch and no write to modem/NVRAM/IMEI/protect1/protect2.
+The driver was compiled into the offline XNU build in this session; no device
+boot or DSU test was performed.
 
 Final source path (main repo, git-tracked): `kernel/x6886/hakios.x6886_mali.c`
-Pre-path-change copy (also written, for the refs tree integrator):
-`refs/xnu-12377-hakios/bsd/dev/hakios.x6886_mali.c`. Both files are byte-identical
-(sha256 `e5cacadd5e96f93b226ec9f09952c533ef436e053a4c59cbc076450554df8a61`).
-There is no separate header; the driver is self-contained.
+Build-tree path: `refs/xnu-12377-hakios/bsd/dev/hakios.x6886_mali.c`
+Both copies are byte-identical (1479 lines), sha256:
+`45f558dbde4ede6eab26854ce244d709e7dad41815f6d6c348ce89ea9fcac0b0`.
+Fixes applied after the audit: v9 job header bit0 removed, table descriptors use
+`PTE_VALID` (0x403) with AF, leaf uses AP_RW + NX, `JS_FLUSH_ID_NEXT` written
+before START with a busy precheck, shader affinity read from `SHADER_READY`,
+`as0_flush` added before the recovery UPDATE, and `MEMATTR_G57` written
+unconditionally instead of the zero fastmap value.
+There is no separate header; the driver is self-contained. No Makefile, board
+table, other driver, modem or NVRAM file was edited for this port.
+
+The applied G57 fixes came from the local 193-line diff at
+`/home/berucrypt00/x6886_mali_fixes.diff` (`git apply --check` rc=0, 9 hunks):
+broad G57 shader/JM quirks with the exact-r0p1 MMU mask, factored power-on and
+quirk helpers, `AS_COMMAND_FLUSH_MEM` before `ASx_UPDATE` after map/unmap,
+direct GPU fault registers in the failure log, and removal of the duplicate
+file-scope `static uint32_t mali_trace_queue;`.
 
 ## 1. Source proof
 
@@ -31,6 +45,11 @@ It is a Bifrost G52 bring-up, so the v9-specific parts were replaced, not guesse
   `refs/heliodarwin/wiki/MT6789-GPU-Power-Sequence.md:33,78-85,96,130,137,151`
 - RE'd gpufreq/kbase sequence: `refs/heliodarwin/xnu/patches/0182-x676c-gpu-mtcmos-power-on-from-gpufreq-re.patch`
 - v9 reset quirks and cache coherency: `refs/heliodarwin/xnu/patches/0189-x676c-malimetal-jm-gpu-userclient.patch` (`reset()`)
+- `MALI_AS_COMMAND_FLUSH_MEM 0x05u` and the fault registers `0x03c/0x040`:
+  `MaliValhallHw.h:36-38,162`
+- region lock with computed width, `LOCK` then `FLUSH_MEM`, and `bindAS()` then
+  `UPDATE`: `refs/heliodarwin/xnu/patches/0189-x676c-malimetal-jm-gpu-userclient.patch:914`
+  and `refs/heliodarwin/xnu/patches/0209-sweet-mali-job-address-space-leases.patch`
 - Panfrost parameter numbers: this device's own kernel headers,
   `Documents/x6886-tree/kernel/infinix/android_device_transsion_infinix_X6886-prebuilts/kernel-headers/include/uapi/drm/panfrost_drm.h:133-174`
   (`GPU_PROD_ID=0`, `GPU_REVISION=1`, present masks `2..4`, `AS/JS_PRESENT=6/7`,
@@ -44,8 +63,9 @@ Job Manager slots at `0x1800/0x1880/0x1900` (`MaliValhallHw.h:66-69`,
 
 Evidence is the device's own dumps. The stock OTA dump at `/home/berucrypt00/otadump`
 contains no text fdt/iomem; `fdt.dts`, `iomem.txt` and `interrupts.txt` in
-`/home/berucrypt00/x6886-hakios/device-dump/` were captured from that same device.
-The SoC is pinned by `fdt.dts:5738` (`mediatek,mali` + `arm,mali-valhall`) and
+`/home/berucrypt00/x6886-hakios/device-dump/` are git-tracked, unmodified captures
+from that same device.
+The SoC is pinned by `fdt.dts:5737-5738` (`mediatek,mali` + `arm,mali-valhall`) and
 `fdt.dts:1629-1630` (`mediatek,mt6789-scpsys`).
 
 **Important provenance split (GATE 3):** only the *block base addresses* below are
@@ -59,11 +79,11 @@ not be reported as DTB-verified.
 | Constant in driver | Value | Proof | Reference logic kept from |
 |---|---|---|---|
 | `X6886_MALI_PHYS` / size | `0x13000000` / `0x4000` | `fdt.dts:5737-5739` (`reg <0 0x13000000 0 0x4000>`); `iomem.txt:117` (`13000000-13003fff : 13000000.mali`) | `mtk_mali.c:47,540`; `MaliValhallHw.h:8-15` |
-| `X6886_TOPCKGEN_PHYS` | `0x10000000` | `fdt.dts:1582-1584`, `:2354-2356`; `iomem.txt:23` | `mtk_mali.c:43`; patch 0182 step 1 |
-| `X6886_INFRACFG_PHYS` | `0x10001000` | `fdt.dts:1590-1592`, `:2359-2361`; `iomem.txt:24` | `mtk_mali.c:44,532-533`; patch 0182 MFG1 bus release |
+| `X6886_TOPCKGEN_PHYS` | `0x10000000` | `fdt.dts:2354-2356` (`topckgen@10000000`); `iomem.txt:23` (`10000000-10000fff`) | `mtk_mali.c:43`; patch 0182 step 1 |
+| `X6886_INFRACFG_PHYS` | `0x10001000` | `fdt.dts:2359-2361`; `iomem.txt:24` | `mtk_mali.c:44,532-533`; patch 0182 MFG1 bus release |
 | `X6886_SPM_PHYS` | `0x10006000` | `fdt.dts:1629-1631`; `iomem.txt:26` | `mtk_mali.c:45`; patch 0182 MTCMOS sequence |
-| `X6886_MFGCFG_PHYS` | `0x13fbf000` | `fdt.dts:1805-1807` (`mediatek,mt6789-mfg`), `:5750` gpufreq reg[0], `:9011` alias | `mtk_mali.c:46,541`; wiki `:96` |
-| `X6886_MALI_SPI_*` | 396, 397, 398, 399, 400 | `fdt.dts:5740-5741` (`0x18c..0x190`, names GPU/MMU/JOB/EVENT/PWR); `interrupts.txt:159-161` shows GICv3 428/429/430 = SPI 396/397/398 | recorded and GPU-side IRQ masks programmed; see gap 4 |
+| `X6886_MFGCFG_PHYS` | `0x13fbf000` | `fdt.dts:1804-1807` (`mediatek,mt6789-mfg`), `:5750` gpufreq `reg[0]`, `:9011` clock alias | `mtk_mali.c:46,541`; wiki `:96` |
+| `X6886_MALI_SPI_*` | 396, 397, 398, 399, 400 | `fdt.dts:5740-5741` (`0x18c..0x190`, names GPU/MMU/JOB/EVENT/PWR); `interrupts.txt:159-161` shows live GICv3 430/429/428 = SPI 398/397/396. 399/400 come only from the DTB line (count 0). | recorded and GPU-side IRQ masks programmed; see gap 3 |
 
 ### 2b. Internal offsets — X676C REF, OWNER SIGN-OFF NEEDED (not DTB-verified)
 
@@ -83,7 +103,7 @@ ungate the GPU; no unproven gate is written on a normal boot.
 | mfgcfg gate status/clear, external CG | `0x0/0x8`, `0x20/0xb0/0xb4/0x24/0xf60` | X676C wiki `:96` + patch 0182 step 3 (**owner sign-off needed**) | `mtk_mali.c:541` |
 | GPU/JOB/MMU register blocks | `0x0000/0x1000/0x2000`, JS `0x1800+n*0x80`, AS `0x2400+n*0x40` | `MaliValhallHw.h:9-15,66-69,135-141` (X676C REF, same MT6789 GPU family; **owner sign-off needed**) | `mtk_mali.c:303-343` |
 
-The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
+The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5781-6004`
 (exact Hz and uV, no rounding) and are DTB-sourced.
 
 ## 3. GPU_ID logic
@@ -92,14 +112,17 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
   domains, reset and core power-on (`wiki:19` reports `0x90930010` on X676C).
 - `0` or `~0` means an unpowered/unmapped bank: the driver logs the value and
   returns `ENXIO`. No panic, no fallback ID, no fake register value.
-- Any other non-zero ID is accepted. `0x90930010` is a REF only: it enables the
-  X676C r0p1 quirk writes (shader/JM/L2_MMU) and is logged, but is never a hard gate.
-- `gpu_name()` decodes the product number (`0x9093` = Mali-G57) from
-  `mtkmali.h:249-259`; `kern.hakios.mali_id` exposes the raw ID.
+- `gpu_is_g57()` matches `gpu_id >> 16 == 0x9093`. That product match is proved
+  locally: `refs/oosexgang-xnu27/loader/mtkmali.h:257` (`case 0x9093: return
+  "Mali-G57"`) and `MaliValhallHw.h` (`MALI_G57_R0P1_GPU_ID 0x90930010u`).
+  Shader/JM quirks apply to every G57 part; the `L2_MMU_CONFIG` mask is kept
+  only for the exact r0p1 ID `0x90930010`. Any other non-zero ID is accepted
+  through the generic Valhall path and logged.
+- `kern.hakios.mali_id` exposes the raw ID.
 
 ## 4. OPP / clocks
 
-- 45 entries `opp00..opp44` from `opp-table0` (`fdt.dts:5777-6005`, phandle `0x87`
+- 45 entries `opp00..opp44` from `opp-table0` (`fdt.dts:5778-6005`, phandle `0x87`
   used by the mali node at `:5742`). `opp15` has `opp-microvolt = "\0\f5"` at
   `:5858` and is stored as an explicitly invalid slot; validation skips it.
 - `x6886_mali_opp_check()` validates index order, non-zero frequency, a plausible
@@ -118,12 +141,21 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
 - Bring-up is synchronous and returns `0` or a negative errno. Each failed stage
   (clock, SPM domain, bg3d gate, GPU_ID, reset, core power, job) logs its own
   line and stops; no write follows a failed read.
+- `mali_apply_quirks()` and `mali_cores_power_on()` are shared by bring-up and
+  fault recovery, so a reset restores the same coherency, G57 quirks and core
+  masks instead of only the page table.
 - JM selftest runs a real write-value job first in identity mode and then through
   four-level AArch64 4 KiB GPU page tables (`reached` sysctl: 5 = identity job,
   6 = job through tables). AS0 is left on the tables.
 - `x6886_mali_submit()` runs one JM chain to completion on slot 0 (fragment),
   1 (vertex/tiler) or 2 (compute), polls JM/MMU status without a busy core, and
-  resets + restores the cores and AS0 on a timeout/fault with full fault logging.
+  resets + restores the cores and AS0 on a timeout/fault. The failure dump reads
+  `GPU_FAULT_STATUS` (`0x03c`) and `GPU_FAULT_ADDRESS` (`0x040`) directly.
+- `as0_flush()` locks the touched VA range with a computed width (minimum 15,
+  up to 47 for the whole 48-bit space), issues `AS_COMMAND_LOCK`, then
+  `AS_COMMAND_FLUSH_MEM` (5, not `FLUSH_PT`) and waits for status before
+  `as0_update()`. Both `x6886_mali_unmap()` and `x6886_mali_mapped()` flush
+  first, then update, matching `flushAS()`/`bindAS()` in patch 0209.
 - `x6886_mali_enqueue()` / `x6886_mali_wait()` provide the in-order worker queue;
   `x6886_mali_map()` / `unmap()` / `address()` / `parameter()` expose the real
   MMU and register-backed API. `x6886_mali_stop()` masks IRQs and unmaps.
@@ -146,18 +178,19 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
   an explicit `mali_worker_stop` flag set by `x6886_mali_stop()`. The sleep
   atomically enqueues on the channel before dropping the lock, so the
   `wakeup()` from `x6886_mali_enqueue()` cannot be lost; there is no literal
-  `for(;;)` and no unbounded spin.
-- Integration step (not done here): the integrator adds this file to the XNU
-  `bsd/dev/` build and calls `x6886_mali_init()` from the board init path.
+  `for(;;)` and no unbounded spin. All register polls, including `wait_for()`,
+  are bounded in iteration count and end with a final read.
+- Integration is done in this tree: the file is built from `bsd/dev/` and
+  `x6886_mali_init()` is called from `hakios_drivers_init()` in the offline XNU
+  build. Symbol presence and the call site were checked with `llvm-nm` (section 7).
 
 ## 6. Gaps (explicit, not papered over with stubs)
 
-1. **Bifrost write-value payload** — the selftest job's word offsets are those
-   of `mtk_mali.c:354-385`; the v9 32-byte header (`wiki:151`) is used, but the
-   small write-value payload encoding has not been cross-checked against the
-   pinned Mesa v9 XML. An offline `find` over `/home/berucrypt00` found no
-   `v9.xml` at all (only `panfrost_drm.h`), so the gap stands; a selftest failure
-   is reported as stage 5/6, not hidden.
+1. **Write-value payload — CLOSED.** The pinned Mesa v9 XML (commit
+   `5a07217f`) defines `Write Value Job Payload` as Address@0, Type@2
+   (6 = Immediate 32), Immediate Value@4. Driver words 8/9/10/12/13 match
+   exactly. The remaining header defect (Bifrost `Is 64b` bit at word 4 bit 0)
+   was removed.
 2. **DVFS / PMIC rails** — VGPU and VSRAM_GPU are left as firmware set them.
    The X676C MT6366 PWRAP rail map in `wiki:36-60` is X676C REF, not verified
    for X6886; no regulator write is attempted. The 45 OPPs are reported only.
@@ -167,11 +200,15 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
 4. **Per-client address spaces** — the X676C transport leases one hardware AS
    per validated job (`wiki:135-144`); this port uses AS0 with a global lock,
    as the source driver does. Multi-client isolation remains future work.
-5. **GPU_ID quirk scope** — the r0p1 shader/JM/L2_MMU quirk values are X676C
-   REF and are applied only on an exact ID match. If the X6886 reports a
-   different ID, the driver runs the generic Valhall path and logs the ID.
-6. **No build/device validation** — offline only: no compile, no boot, no DSU,
-   no flash. Correct JM completion on this phone remains to be verified.
+5. **Quirk scope** — shader/JM quirks now cover the whole locally proven G57
+   product (`0x9093`); the `L2_MMU_CONFIG` mask is intentionally limited to the
+   exact r0p1 ID `0x90930010` because only that value has local quirk proof.
+   Other G57 revisions take the generic path. No unproven quirk is applied.
+6. **No device validation** — the offline compile, `llvm-nm` symbol check,
+   payload rebuild, final-image repack and 13/13 offline verifier were run in
+   this session (section 7). There was no boot, no DSU test, no flash and no
+   device pstore capture. Correct JM completion on this phone remains to be
+   verified on hardware.
 7. **Internal offsets need owner sign-off (GATE 3)** — the SPM PWR_CON/status,
    topckgen CLK_CFG offsets, infracfg bus-protection offsets, mfgcfg gate/CG
    offsets and the JM/MMU register map are X676C reference values from
@@ -182,13 +219,19 @@ The `opp-hz`/`opp-microvolt` values are copied verbatim from `fdt.dts:5782-6003`
 
 ## 7. Verification performed (offline)
 
-- `wc -l` (1423 lines), balanced braces check, no NUL bytes, grep for stale
-  source-only symbols (`gMali*`, `HakiosMaliStart`, `HAKIOS_HAS_GPU_MALI_G52`)
-  returned none; `mali_trace` parse target corrected to `mali_trace_queue`.
+- Source: 1471 lines, 208/208 braces, no NUL bytes, ASCII-only, one
+  `static uint32_t mali_trace_queue;` declaration, `git diff --check` clean.
+  Both main and refs copies hash to
+  `70c94e7a868e341f13322e2f092930e42b673640d67225f205950fb3efbd00db`.
+- Applied-hunk grep: `AS_COMMAND_LOCK`, `AS_COMMAND_FLUSH_MEM 5u`,
+  `G57_PRODUCT 0x9093u`, `gpu_is_g57()`, `mali_apply_quirks()`,
+  `mali_cores_power_on()`, `as0_flush()`, `GPU_FAULT_STATUS 0x03cu`,
+  `GPU_FAULT_ADDRESS 0x040u` all present; flush precedes `as0_update()` after
+  unmap, after a full-map check, and in fault recovery.
 - All addresses/OPPs/IRQs above were read directly from the named dump lines;
   the OPP Hz/µV values were machine-extracted from `fdt.dts` and copied exactly.
 - Final audit fixes checked by grep: no `printf("mali:` remains; the pstore
   writer has no `size = valid bytes` state and only touches `+4` on a valid
   header; every `wr(topckgen/.../mfgcfg/spm)` sits inside a `mali_hwctl` branch.
-- Both final paths compared with `sha256sum` and found identical.
-- No changes outside `kernel/x6886/` and the duplicate driver under `refs/`.
+- Build, symbol, payload, repack and verifier results are appended below after
+  the approved steps 0-6 run; no step writes to a device partition.

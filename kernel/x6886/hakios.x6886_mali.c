@@ -307,6 +307,8 @@ domains_ready_survey(void)
 #define GPU_INT_MASK            0x028u
 #define GPU_CMD                 0x030u
 #define GPU_STATUS              0x034u
+#define GPU_FAULT_STATUS        0x03cu
+#define GPU_FAULT_ADDRESS       0x040u
 #define PWR_KEY                 0x050u
 #define PWR_OVERRIDE0           0x054u
 #define PWR_OVERRIDE1           0x058u
@@ -354,7 +356,9 @@ domains_ready_survey(void)
 #define JS_AFFINITY_NEXT_LO     0x50u
 #define JS_AFFINITY_NEXT_HI     0x54u
 #define JS_CONFIG_NEXT          0x58u
+#define JS_COMMAND             0x20u
 #define JS_COMMAND_NEXT         0x60u
+#define JS_FLUSH_ID_NEXT        0x70u
 #define JS_COMMAND_START        1u
 /* AS 0, caches flushed on both ends, priority 8: mtk_mali.c:332,
  * MaliValhallHw.h:54-55 (MALI_JS_CONFIG_CACHE_FLUSH | PRIORITY). */
@@ -375,8 +379,10 @@ domains_ready_survey(void)
 #define AS_TRANSCFG_LO          0x30u
 #define AS_TRANSCFG_HI          0x34u
 #define AS_COMMAND_UPDATE       1u
+#define AS_COMMAND_LOCK         2u
 #define AS_COMMAND_UNLOCK       3u
 #define AS_COMMAND_FLUSH_PT     4u
+#define AS_COMMAND_FLUSH_MEM    5u
 
 /* GPU_COMMAND opcodes (MaliValhallHw.h:81-86). */
 #define GPU_CMD_NOP             0x00u
@@ -384,7 +390,8 @@ domains_ready_survey(void)
 #define GPU_CMD_CLEAN_INV       0x08u
 #define COHERENCY_NONE          31u
 
-/* X676C r0p1 reference values, applied only when GPU_ID is exactly 0x90930010. */
+/* G57 product match covers r0p1; the MMU mask stays on the exact r0p1 ID. */
+#define G57_PRODUCT             0x9093u
 #define REF_G57_GPU_ID          0x90930010u
 #define REF_G57_SHADER_QUIRK    (1u << 29)
 #define REF_G57_IDVS_GROUP_SIZE (15u << 16)
@@ -396,14 +403,12 @@ domains_ready_survey(void)
 #define GPU_ADDRESS_FIRST       0x01000000ull
 #define GPU_ADDRESS_END         (1ull << 48)
 #define FIRST_JOB_GPU           0x00100000ull
-#define PTE_TABLE               3ull
 #define PTE_PAGE                3ull
-#define PTE_AF                  (1ull << 10)
-#define PTE_SH_INNER            (3ull << 8)
 #define PTE_AP_RW               (1ull << 6)
+#define PTE_EXECUTE_NEVER       (1ull << 54)
 #define PTE_ADDRESS             0x0000fffffffff000ull
 #define PTE_VALID               0x403ull
-#define PTE_BITS                (PTE_VALID | PTE_AF | PTE_SH_INNER | PTE_AP_RW | PTE_PAGE)
+#define PTE_BITS                (PTE_VALID | PTE_AP_RW | PTE_EXECUTE_NEVER)
 /* Valhall v9 AS_TRANSCFG/MEMATTR: MaliValhallHw.h:52-53 (X676C REF). */
 #define TRANSCFG_AARCH64_4K     0x42000006ull
 #define TRANSCFG_IDENTITY       2ull
@@ -561,7 +566,7 @@ pt_below(uint64_t *entry)
 	if (table == NULL) {
 		return NULL;
 	}
-	*entry = phys | PTE_TABLE;
+	*entry = phys | PTE_VALID;
 	FlushPoC_DcacheRegion((vm_offset_t)entry, sizeof(*entry));
 	return table;
 }
@@ -600,6 +605,66 @@ as0_update(uint64_t transtab, uint64_t transcfg, uint64_t memattr)
 	(void)wait_for(mali, AS0 + AS_STATUS, 1, 0, 50);
 }
 
+static bool
+gpu_is_g57(uint32_t id)
+{
+	return (id >> 16) == G57_PRODUCT;
+}
+
+static void
+mali_apply_quirks(void)
+{
+	wr(mali, COHERENCY_ENABLE, COHERENCY_NONE);
+	if (gpu_is_g57(gpu_id)) {
+		wr(mali, SHADER_CONFIG, rd(mali, SHADER_CONFIG) | REF_G57_SHADER_QUIRK);
+		wr(mali, JM_CONFIG, rd(mali, JM_CONFIG) | REF_G57_IDVS_GROUP_SIZE);
+	}
+	if (gpu_id == REF_G57_GPU_ID) {
+		wr(mali, L2_MMU_CONFIG, rd(mali, L2_MMU_CONFIG) & ~REF_G57_MMU_OUT_MASK);
+	}
+}
+
+static bool
+mali_cores_power_on(void)
+{
+	wr64(mali, L2_PWRON, l2_mask);
+	if (!wait_for(mali, L2_READY, l2_mask, l2_mask, 50)) {
+		return false;
+	}
+	if (tiler_mask != 0) {
+		wr64(mali, TILER_PWRON, tiler_mask);
+	}
+	wr64(mali, SHADER_PWRON, shader_mask);
+	if (tiler_mask != 0 && !wait_for(mali, TILER_READY, tiler_mask, tiler_mask, 50)) {
+		return false;
+	}
+	return wait_for(mali, SHADER_READY, shader_mask, shader_mask, 50);
+}
+
+static void
+as0_flush(uint64_t gpu, uint64_t size)
+{
+	uint64_t last, diff, width, lock;
+
+	if (size == 0) {
+		return;
+	}
+	last = gpu + size - 1;
+	diff = gpu ^ last;
+	width = diff != 0 ? 64 - (uint64_t)__builtin_clzll(diff) : 0;
+	if (width < 15) {
+		width = 15;
+	}
+	width -= 1;
+	lock = (gpu & ~((1ull << width) - 1)) | width;
+	(void)wait_for(mali, AS0 + AS_STATUS, 1, 0, 50);
+	wr64(mali, AS0 + AS_LOCKADDR_LO, lock);
+	wr(mali, AS0 + AS_COMMAND, AS_COMMAND_LOCK);
+	(void)wait_for(mali, AS0 + AS_STATUS, 1, 0, 50);
+	wr(mali, AS0 + AS_COMMAND, AS_COMMAND_FLUSH_MEM);
+	(void)wait_for(mali, AS0 + AS_STATUS, 1, 0, 50);
+}
+
 /* ---- one Job Manager write-value job -------------------------------------- */
 
 /* The smallest real job: a 32-byte v9 header at the start of `page`, a
@@ -615,7 +680,7 @@ run_write_job(vm_offset_t page, uint64_t gpu, const char *what)
 	bool ok;
 
 	bzero((void *)page, PAGE_SIZE);
-	job[4] = (JOB_TYPE_WRITEVALUE << 1) | 1u | (JOB_INDEX << 16);
+	job[4] = (JOB_TYPE_WRITEVALUE << 1) | (JOB_INDEX << 16);
 	job[8] = (uint32_t)(gpu + 0x800);
 	job[9] = (uint32_t)((gpu + 0x800) >> 32);
 	job[10] = JOB_VALUE_TYPE;
@@ -626,8 +691,8 @@ run_write_job(vm_offset_t page, uint64_t gpu, const char *what)
 	wr(mali, JOB_INT_CLEAR, 0xffffffffu);
 	wr(mali, JS1 + JS_HEAD_NEXT_LO, (uint32_t)gpu);
 	wr(mali, JS1 + JS_HEAD_NEXT_HI, (uint32_t)(gpu >> 32));
-	wr(mali, JS1 + JS_AFFINITY_NEXT_LO, (uint32_t)shader_mask);
-	wr(mali, JS1 + JS_AFFINITY_NEXT_HI, (uint32_t)(shader_mask >> 32));
+	wr(mali, JS1 + JS_AFFINITY_NEXT_LO, (uint32_t)rd64(mali, SHADER_READY));
+	wr(mali, JS1 + JS_AFFINITY_NEXT_HI, (uint32_t)(rd64(mali, SHADER_READY) >> 32));
 	wr(mali, JS1 + JS_CONFIG_NEXT, JS_CONFIG);
 	wr(mali, JS1 + JS_COMMAND_NEXT, JS_COMMAND_START);
 	(void)wait_for(mali, JOB_INT_RAWSTAT, (1u << 1) | (1u << 17), 1u << 1, 100);
@@ -664,7 +729,7 @@ first_jobs(void)
 		done = 1;
 		if (map_page(FIRST_JOB_GPU, kvtophys(page))) {
 			as0_update(pt_top_phys, TRANSCFG_AARCH64_4K,
-			    mali_fastmap ? 0 : MEMATTR_G57);
+			    MEMATTR_G57);
 			if (run_write_job(page, FIRST_JOB_GPU, "second job, through GPU page tables")) {
 				done = 2;
 			}
@@ -802,14 +867,10 @@ x6886_mali_up(void)
 	wr(mali, JOB_INT_CLEAR, 0xffffffffu);
 	wr(mali, MMU_INT_CLEAR, 0xffffffffu);
 
-	/* No hardware cache coherency on MT6789 (patch 0189 reset()). */
-	wr(mali, COHERENCY_ENABLE, COHERENCY_NONE);
-	if (gpu_id == REF_G57_GPU_ID) {
-		wr(mali, SHADER_CONFIG, rd(mali, SHADER_CONFIG) | REF_G57_SHADER_QUIRK);
-		wr(mali, JM_CONFIG, rd(mali, JM_CONFIG) | REF_G57_IDVS_GROUP_SIZE);
-		wr(mali, L2_MMU_CONFIG, rd(mali, L2_MMU_CONFIG) & ~REF_G57_MMU_OUT_MASK);
-		mali_log("applied the X676C r0p1 quirk set (GPU_ID matched %#x)\n", REF_G57_GPU_ID);
-	}
+	mali_apply_quirks();
+	mali_log("quirks applied (G57 set: %s), SHADER_CONFIG %#x, JM_CONFIG %#x, L2_MMU_CONFIG %#x, MMU features %#x\n",
+	    gpu_is_g57(gpu_id) ? "yes" : "no", rd(mali, SHADER_CONFIG), rd(mali, JM_CONFIG),
+	    rd(mali, L2_MMU_CONFIG), rd(mali, GPU_MMU_FEATURES));
 
 	l2_mask = rd64(mali, L2_PRESENT);
 	tiler_mask = rd64(mali, TILER_PRESENT);
@@ -820,22 +881,11 @@ x6886_mali_up(void)
 		error = ENXIO;
 		goto fail;
 	}
-	wr64(mali, L2_PWRON, l2_mask);
-	if (!wait_for(mali, L2_READY, l2_mask, l2_mask, 50)) {
-		mali_log("L2 cores did not power up (ready %#llx)\n",
-		    (unsigned long long)rd64(mali, L2_READY));
-		error = ENXIO;
-		goto fail;
-	}
-	if (tiler_mask != 0) {
-		wr64(mali, TILER_PWRON, tiler_mask);
-	}
-	wr64(mali, SHADER_PWRON, shader_mask);
-	if ((tiler_mask != 0 && !wait_for(mali, TILER_READY, tiler_mask, tiler_mask, 50)) ||
-	    !wait_for(mali, SHADER_READY, shader_mask, shader_mask, 50)) {
-		mali_log("shader/tiler cores did not power up (ready %#llx/%#llx)\n",
-		    (unsigned long long)rd64(mali, SHADER_READY),
-		    (unsigned long long)rd64(mali, TILER_READY));
+	if (!mali_cores_power_on()) {
+		mali_log("cores did not power up (ready L2 %#llx, tiler %#llx, shader %#llx)\n",
+		    (unsigned long long)rd64(mali, L2_READY),
+		    (unsigned long long)rd64(mali, TILER_READY),
+		    (unsigned long long)rd64(mali, SHADER_READY));
 		error = ENXIO;
 		goto fail;
 	}
@@ -1022,10 +1072,10 @@ x6886_mali_unmap(uint64_t gpu, uint64_t size)
 	}
 	lck_mtx_unlock(&mali_lock);
 
-	/* An entry was taken out: the MMU may have cached it. */
 	lck_mtx_lock(&mali_job_lock);
 	lck_mtx_lock(&mali_lock);
-	as0_update(pt_top_phys, TRANSCFG_AARCH64_4K, mali_fastmap ? 0 : MEMATTR_G57);
+	as0_flush(gpu, size);
+	as0_update(pt_top_phys, TRANSCFG_AARCH64_4K, MEMATTR_G57);
 	lck_mtx_unlock(&mali_lock);
 	lck_mtx_unlock(&mali_job_lock);
 }
@@ -1033,11 +1083,9 @@ x6886_mali_unmap(uint64_t gpu, uint64_t size)
 void
 x6886_mali_mapped(void)
 {
-	if (mali_fastmap) {
-		return;                     /* non-cached walks read what the CPU wrote */
-	}
 	lck_mtx_lock(&mali_job_lock);
 	lck_mtx_lock(&mali_lock);
+	as0_flush(0, GPU_ADDRESS_END);
 	as0_update(pt_top_phys, TRANSCFG_AARCH64_4K, MEMATTR_G57);
 	lck_mtx_unlock(&mali_lock);
 	lck_mtx_unlock(&mali_job_lock);
@@ -1181,12 +1229,20 @@ x6886_mali_submit(uint64_t chain, bool fragment)
 	}
 	lck_mtx_lock(&mali_job_lock);
 	lck_mtx_lock(&mali_lock);
+	if (rd(mali, js + JS_COMMAND_NEXT) != 0 || rd(mali, js + JS_COMMAND) != 0) {
+		lck_mtx_unlock(&mali_lock);
+		lck_mtx_unlock(&mali_job_lock);
+		mali_log("JM slot %u busy (NEXT %#x, CURRENT %#x)\n", slot,
+		    rd(mali, js + JS_COMMAND_NEXT), rd(mali, js + JS_COMMAND));
+		return EBUSY;
+	}
 	wr(mali, JOB_INT_CLEAR, (1u << slot) | (1u << (slot + 16)));
 	wr(mali, js + JS_HEAD_NEXT_LO, (uint32_t)chain);
 	wr(mali, js + JS_HEAD_NEXT_HI, (uint32_t)(chain >> 32));
-	wr(mali, js + JS_AFFINITY_NEXT_LO, (uint32_t)shader_mask);
-	wr(mali, js + JS_AFFINITY_NEXT_HI, (uint32_t)(shader_mask >> 32));
+	wr(mali, js + JS_AFFINITY_NEXT_LO, (uint32_t)rd64(mali, SHADER_READY));
+	wr(mali, js + JS_AFFINITY_NEXT_HI, (uint32_t)(rd64(mali, SHADER_READY) >> 32));
 	wr(mali, js + JS_CONFIG_NEXT, JS_CONFIG);
+	wr(mali, js + JS_FLUSH_ID_NEXT, 0);
 	wr(mali, js + JS_COMMAND_NEXT, JS_COMMAND_START);
 	lck_mtx_unlock(&mali_lock);
 	finished = wait_job(JOB_INT_RAWSTAT, (1u << slot) | (1u << (slot + 16)), 1u << slot, 1000);
@@ -1211,18 +1267,20 @@ x6886_mali_submit(uint64_t chain, bool fragment)
 		mali_log("JM slot %u did not finish: JOB_INT_RAWSTAT %#x, JS_STATUS %#x, MMU %#x, fault %#x at %#llx\n",
 		    slot, raw, last_failure.status, last_failure.mmu, last_failure.fault,
 		    (unsigned long long)last_failure.fault_address);
+		mali_log("  GPU_FAULT_STATUS %#x at %#llx\n", rd(mali, GPU_FAULT_STATUS),
+		    (unsigned long long)rd64(mali, GPU_FAULT_ADDRESS));
 		describe_address(last_failure.fault_address);
 
-		/* Reset and put the cores and AS0 back exactly as bring-up left them. */
 		wr(mali, GPU_INT_CLEAR, 0xffffffffu);
 		wr(mali, GPU_CMD, GPU_CMD_SOFT_RESET);
 		(void)wait_for(mali, GPU_INT_RAWSTAT, IRQ_RESET_COMPLETED, IRQ_RESET_COMPLETED, 100);
-		wr(mali, COHERENCY_ENABLE, COHERENCY_NONE);
-		wr64(mali, L2_PWRON, rd64(mali, L2_PRESENT));
-		wr64(mali, TILER_PWRON, rd64(mali, TILER_PRESENT));
-		wr64(mali, SHADER_PWRON, shader_mask);
-		(void)wait_for(mali, SHADER_READY, shader_mask, shader_mask, 50);
-		as0_update(pt_top_phys, TRANSCFG_AARCH64_4K, mali_fastmap ? 0 : MEMATTR_G57);
+		wr(mali, GPU_INT_CLEAR, 0xffffffffu);
+		mali_apply_quirks();
+		if (!mali_cores_power_on()) {
+			mali_log("recovery: cores did not power up again\n");
+		}
+		as0_flush(0, GPU_ADDRESS_END);
+		as0_update(pt_top_phys, TRANSCFG_AARCH64_4K, MEMATTR_G57);
 		wr(mali, MMU_INT_CLEAR, 0xffffffffu);
 	}
 	wr(mali, JOB_INT_CLEAR, (1u << slot) | (1u << (slot + 16)));
@@ -1238,7 +1296,6 @@ static struct {
 	uint64_t chain, seq, queued;
 	bool fragment;
 } mali_queue[MALI_QUEUE];
-static uint32_t mali_trace_queue;
 static unsigned mali_queue_head, mali_queue_count;
 static uint64_t mali_queued_seq, mali_done_seq;
 static bool mali_worker_started, mali_worker_stop;

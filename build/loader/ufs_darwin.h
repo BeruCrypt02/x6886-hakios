@@ -17,6 +17,7 @@
 
 extern void mmu_on(uint64_t l1_table);
 extern void dcache_clean_range(uint64_t va, uint64_t len);
+extern void dcache_inval_range(uint64_t va, uint64_t len);
 extern void block_server_entry(void);
 
 #define UFS_DARWIN_BLOCK_PAGE   0x4000u
@@ -144,7 +145,9 @@ void block_server_main(void)
 		uint64_t lba, count, bytes;
 		int ok;
 
-		dcache_clean_range((uint64_t)(uintptr_t)&p->ask, sizeof(p->ask));
+		/* XNU writes ask through an uncached mapping: invalidate, do not
+		 * clean, or a stale loader cache line overwrites the request. */
+		dcache_inval_range((uint64_t)(uintptr_t)&p->ask, sizeof(p->ask));
 		req = p->ask.request;
 		if (req == served) {
 			__asm__ volatile("yield");
@@ -160,8 +163,19 @@ void block_server_main(void)
 		if (part == 0 && op == UFS_DARWIN_OP_READ && p->buffer_size >= bytes &&
 		    bytes != 0 && ufs_darwin_blocks != 0 && lba <= ufs_darwin_blocks &&
 		    count <= ufs_darwin_blocks - lba) {
-			ok = ufs_read_lun(UFS_MAIN_LUN, ufs_darwin_lba + lba,
-			    (uint32_t)count, (void *)(uintptr_t)p->buffer_pa);
+			/* ufs_fail() disarms the list on the first transient error; restore
+			 * the validated list and retry so one bad response cannot kill
+			 * every later read from XNU. */
+			for (uint32_t attempt = 0; attempt < 3 && !ok; attempt++) {
+				if (!ufs_list_phys) {
+					ufs_list_phys = ufs_gpt_list_phys;
+				}
+				ok = ufs_read_lun(UFS_MAIN_LUN, ufs_darwin_lba + lba,
+				    (uint32_t)count, (void *)(uintptr_t)p->buffer_pa);
+				if (!ok) {
+					dbg_delay_ms(1);
+				}
+			}
 		}
 		if (ok) {
 			dcache_clean_range(p->buffer_pa, bytes);

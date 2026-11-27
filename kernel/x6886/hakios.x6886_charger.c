@@ -1,6 +1,15 @@
 /*
- * X6886 (MT6789) SC8950 basic charging: SAFE 5 V path, SC8950 ONLY.
+ * X6886 (MT6789) SC8950 + SC8548 charging: SAFE 5 V path, NO pump, NO writes to SC8548.
  *
+ * Both parts and their buses come from the device's own FDT:
+ *   SC8950  : i2c5 0x6b, "southchip,sc8950"       : fdt.dts:5125-5127
+ *   SC8548  : i2c7 0x6f, "sc,sc8548-standalone"   : fdt.dts:5245-5247
+ *   i2c5 MMIO 0x11017000 + 0x1000                 : fdt.dts:4860, iomem.txt:41,100
+ *   i2c7 MMIO 0x11f00000 + 0x1000                 : fdt.dts:5233, iomem.txt:43,113
+ * The primary SC8548 is only probed with a READ, at a register offset supplied by
+ * x6886_sc8548_reg=N: no SC8548 register offset exists in the dump or in the
+ * alps source tree, so it is REF and never enabled without that opt-in.
+ * SC8950 regulator programming stays unchanged and is summarised below.
  * Register source (genuine, no invented offsets):
  *   refs/alps-device-modules-6.12/drivers/power/supply/bq2589x_reg.h
  *     REG_00 / EN_HIZ / EN_ILIM / IINLIM            : 21-34
@@ -33,8 +42,10 @@
  *   HL7139A pump node exists but is NOT used here      : fdt.dts:5259-5265
  *
  * Hard boundaries of this driver:
- *  - Only I2C address 0x6b (SC8950) is ever passed to the transport. A pump
- *    address is refused by chg_read/chg_write; there is no enable path.
+ *  - SC8950 (0x6b) is the ONLY address writes are ever passed to. chg_write()
+ *    refuses every other address. chg_read() additionally allows SC8548 (0x6f)
+ *    for a single bounded, read-only presence probe; it never writes to 0x6f.
+ *    The HL7139A pump (0x5f) and every other I2C address are refused.
  *  - Cell voltage never exceeds 4.35 V: VREG code 31 = 4336 mV is used,
  *    code 32 would be 4352 mV and is therefore not written.
  *  - Charge current is capped at 1500 mA (code 25 with the 60 mA LSB).
@@ -120,6 +131,17 @@ x6886_pstore_write(const char *message, unsigned length)
 
 /* ---- SC8950 / SC89890H register map, every offset cited to alps ------- */
 #define SC8950_ADDR             0x6bu          /* fdt.dts:5126; dmesg.txt:48 */
+
+/* SC8548 (primary charger, i2c7) is read-only here. No register offset for it
+ * exists in fdt.dts, iomem.txt or the alps tree: the only one this driver ever
+ * uses comes from the x6886_sc8548_reg=N REF boot argument, range-checked. */
+#define SC8548_ADDR             0x6fu          /* fdt.dts:5247 (reg = <0x6f>) */
+#define X6886_I2C5_PHYS         0x11017000u    /* fdt.dts:4860; iomem.txt:41,100 */
+#define X6886_I2C5_SIZE         0x1000u        /* fdt.dts:4860; iomem.txt:100 */
+#define X6886_I2C7_PHYS         0x11f00000u    /* fdt.dts:5233; iomem.txt:43,113 */
+#define X6886_I2C7_SIZE         0x1000u        /* fdt.dts:5233; iomem.txt:113 */
+
+#define SC8548_PROBE_TRIES      2u             /* bounded: 2 * 50 ms */
 
 #define REG_00                  0x00u          /* bq2589x_reg.h:21 */
 #define EN_HIZ_MASK             0x80u          /* bq2589x_reg.h:22 */
@@ -210,11 +232,13 @@ struct x6886_chg_i2c_ops *x6886_charger_i2c_ops __attribute__((weak));
 static LCK_GRP_DECLARE(chg_grp, "x6886-chg");
 static LCK_MTX_DECLARE(chg_lock, &chg_grp);
 
-/* Address gate: no path may ever reach the HL7139A pump or any other part. */
+/* Address gate: 0x6b may be read and written; 0x6f may only be read (probe).
+ * No path can reach the HL7139A pump (0x5f) or any other part. */
 static int
 chg_read(uint8_t addr, uint8_t reg, uint8_t *value)
 {
-	if (addr != SC8950_ADDR || x6886_charger_i2c_ops == NULL ||
+	if ((addr != SC8950_ADDR && addr != SC8548_ADDR) ||
+	    x6886_charger_i2c_ops == NULL ||
 	    x6886_charger_i2c_ops->read == NULL || value == NULL) {
 		return EPERM;
 	}
@@ -428,18 +452,51 @@ disable:
 	return error;
 }
 
+/* SC8548 is the primary charger on i2c7 (fdt.dts:5245-5247). This driver has no
+ * SC8548 register definitions - neither the dump nor the alps tree carries them -
+ * so the one register offset it may read is an explicit REF boot argument. There
+ * is no SC8548 write path: the pump and primary charger stay untouched.
+ */
+static int
+x6886_chg_sc8548_probe(uint8_t *value)
+{
+	uint32_t reg = 0;
+	int error = ENODEV;
+
+	if (!PE_parse_boot_argn("x6886_sc8548_reg", &reg, sizeof(reg)) || reg > 0xffu) {
+		X6886_LOG("SC8548 7-0x%02x on i2c7 %#x+%#x: set x6886_sc8548_reg=0..255 "
+		    "(REF offset) to probe; no write path exists\n", SC8548_ADDR,
+		    X6886_I2C7_PHYS, X6886_I2C7_SIZE);
+		return ENODEV;
+	}
+	for (uint32_t try = 1; try <= SC8548_PROBE_TRIES; try++) {
+		error = chg_read(SC8548_ADDR, (uint8_t)reg, value);
+		if (error == 0) {
+			X6886_LOG("SC8548 7-0x%02x present on try %u: REF reg %u = %#x "
+			    "(read-only)\n", SC8548_ADDR, try, (unsigned)reg, *value);
+			return 0;
+		}
+		delay(POLL_DELAY_US);
+	}
+	X6886_LOG("SC8548 7-0x%02x probe failed after %u tries: %d; SC8950 path unchanged\n",
+	    SC8548_ADDR, SC8548_PROBE_TRIES, error);
+	return error;
+}
+
 int
 x6886_charger_init(void)
 {
 	uint32_t on = 0;
+	uint8_t sc8548 = 0;
 	int error;
 
 	if (!PE_parse_boot_argn("x6886_chg", &on, sizeof(on)) || on == 0) {
 		return 0;                       /* default: touch nothing */
 	}
 	x6886_pstore_map();
-	X6886_LOG("SC8950 on i2c5-0x%02x, caps %u mV / %u mA; HL7139A disabled\n",
-	    SC8950_ADDR, X6886_CV_UV / 1000u, X6886_ICHG_UA / 1000u);
+	X6886_LOG("SC8950 on i2c5 %#x+%#x-0x%02x, caps %u mV / %u mA; HL7139A disabled\n",
+	    X6886_I2C5_PHYS, X6886_I2C5_SIZE, SC8950_ADDR,
+	    X6886_CV_UV / 1000u, X6886_ICHG_UA / 1000u);
 
 	if (x6886_charger_i2c_ops == NULL || x6886_charger_i2c_ops->read == NULL ||
 	    x6886_charger_i2c_ops->write == NULL) {
@@ -447,6 +504,9 @@ x6886_charger_init(void)
 		    SC8950_ADDR);
 		return ENXIO;
 	}
+	/* Bounded, read-only SC8548 probe. Its result is diagnostic only: this
+	 * driver never writes the primary charger or the pump. */
+	(void)x6886_chg_sc8548_probe(&sc8548);
 	lck_mtx_lock(&chg_lock);
 	error = x6886_chg_safe_init();
 	lck_mtx_unlock(&chg_lock);

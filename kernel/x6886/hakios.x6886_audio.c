@@ -264,6 +264,68 @@ x6886_afe_dma_check(void)
 	    base, end, cur, vbase, vend, vcur);
 }
 
+/* REF-only AFE register programming. The dump proves the AFE base and IRQ but carries
+ * no register map: every offset/bit below is from
+ * refs/alps-device-modules-6.12/sound/soc/mediatek/mt6789/mt6789-reg.h and the order is
+ * from mt6789-afe-pcm.c:2835-2926,2953-2975. Gated by x6886_audio_ref=1; bounded
+ * readback at every step, no DMA buffer or IRQ handler is started.
+ */
+static int
+x6886_afe_program_ref(void)
+{
+	uint32_t value;
+	unsigned spin;
+
+	/* 1. mask stale MCU IRQ and clear its status (pcm.c:2835-2926) */
+	afe[AFE_IRQ_MCU_EN / 4] = 0;
+	afe[AFE_IRQ_MCU_CLR / 4] = 0xffffffffu;
+	for (spin = 0; spin < X6886_READY_SPINS; spin++) {
+		value = afe[AFE_IRQ_MCU_EN / 4];
+		if (value == 0) {
+			break;
+		}
+		delay(X6886_READY_DELAY_US);
+	}
+	if (spin == X6886_READY_SPINS) {
+		x6886_afe_dump("AFE IRQ mask");
+		return EBUSY;
+	}
+
+	/* 2. release the CCF-controlled power/idle gate (pcm.c:2967, :2588) */
+	value = afe[AUDIO_TOP_CON0 / 4];
+	value &= ~X6886_PDN_MASK;
+	value |= (1u << AHB_IDLE_EN_EXT_SFT);
+	afe[AUDIO_TOP_CON0 / 4] = value;
+	for (spin = 0; spin < X6886_READY_SPINS; spin++) {
+		value = afe[AUDIO_TOP_CON0 / 4];
+		if ((value & (X6886_PDN_MASK | (1u << AHB_IDLE_EN_EXT_SFT))) ==
+		    (1u << AHB_IDLE_EN_EXT_SFT)) {
+			break;
+		}
+		delay(X6886_READY_DELAY_US);
+	}
+	if (spin == X6886_READY_SPINS) {
+		x6886_afe_dump("AFE power gate");
+		return EBUSY;
+	}
+
+	/* 3. enable AFE (AFE_DAC_CON0 bit 0; pcm.c:2975) */
+	value = afe[AFE_DAC_CON0 / 4];
+	afe[AFE_DAC_CON0 / 4] = value | 1u;
+	for (spin = 0; spin < X6886_READY_SPINS; spin++) {
+		if ((afe[AFE_DAC_CON0 / 4] & 1u) != 0) {
+			break;
+		}
+		delay(X6886_READY_DELAY_US);
+	}
+	if (spin == X6886_READY_SPINS) {
+		x6886_afe_dump("AFE enable");
+		return EBUSY;
+	}
+	X6886_LOG("AFE REF program verified: IRQ masked, PDN clear, AFE on (no DMA/IRQ handler)\n");
+	return 0;
+}
+
 /* MT6366 DAPM paths, transcribed from the stock kctl map. XNU has no ALSA
  * kcontrols, so these are declarative routes only; no PMIC register is written
  * (the MT6358 codec register map is not present in refs/).
@@ -327,6 +389,18 @@ x6886_audio_init(void)
 	}
 	x6886_afe_dma_check();
 	x6886_route_dump();
-	X6886_LOG("AFE scaffold online (read-only); no DMA start, no PMIC write, no IRQ handler\n");
+	{
+		uint32_t ref = 0;
+
+		(void)PE_parse_boot_argn("x6886_audio_ref", &ref, sizeof(ref));
+		if (ref == 0) {
+			X6886_LOG("read-only scaffold: no AFE register written; x6886_audio_ref=1 required\n");
+			return ENOTSUP;
+		}
+	}
+	err = x6886_afe_program_ref();
+	if (err != 0) {
+		return err;
+	}
 	return 0;
 }

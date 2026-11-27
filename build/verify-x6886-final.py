@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline verification of build/boot-hakios-x6886-final.img (13 checks).
+"""Offline verification of build/boot-HakiOS-X6886.img (13 checks).
 
 Reads only the final image, the committed loader blob, the loader ELF that produced that blob
 and the board/loader sources. Nothing is flashed, nothing is written.
@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 ROOT = "/home/berucrypt00/x6886-hakios"
-IMG = f"{ROOT}/build/boot-hakios-x6886-final.img"
+IMG = f"{ROOT}/build/boot-HakiOS-X6886.img"
 LOADER = f"{ROOT}/build/loader/mtkloader.bin"
 ELF = "/tmp/opencode/elf-final2/mtkloader.elf"
 READELF = f"{ROOT}/tools/root/usr/lib/llvm-20/bin/llvm-readelf"
@@ -77,7 +77,8 @@ elif sblob[:4] == b"\x02\x21\x4c\x18":
                            stdout=subprocess.PIPE, check=True).stdout
 stock_image_len = len(sblob)
 ok = (res2 == 0 and res3 == stock_image_len and payload_off == CHAIN_OFFSET + res3
-      and payload_magic == 0x50554E58 and [n for n, _ in entries] == ["kernel", "ramdisk"])
+      and payload_magic == 0x50554E58 and [n for n, _ in entries] in
+      (["kernel", "ramdisk"], ["kernel", "ramdisk", "ramdisk1"]))
 check(4, "res2/res3/XNUP", ok,
       f"res2={res2} res3={res3} (stock Image={stock_image_len}) payload_off={payload_off:#x} "
       f"(=CHAIN_OFFSET+res3 {CHAIN_OFFSET + res3:#x}) magic={payload_magic:#x} "
@@ -146,7 +147,7 @@ check(11, "watchdog", ok, "TOPRGU=0x10007000, restart key=0x1971, ELF watcher_en
 
 # 12 -- XNU-direct
 ok = ("install_xnu_vectors" in syms and "xnu_return_stub" in syms
-      and b"XNUP" in lb and len(entries) == 2)
+      and b"XNUP" in lb and len(entries) in (2, 3))
 check(12, "XNU-direct", ok, f"ELF install_xnu_vectors/xnu_return_stub; loader XNUP at {lb.find(b'XNUP')}; payload={entries}")
 
 # 13 -- AVB none

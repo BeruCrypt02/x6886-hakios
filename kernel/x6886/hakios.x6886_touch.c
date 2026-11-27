@@ -9,11 +9,17 @@
  * device's own dump; PORT-TOUCH.md carries the file:line proof and the gaps.
  *
  * Boot args: x6886_touch=N (0 off, 1 readiness, 2 + GPIO power/reset and chip presence,
- * 3 + bounded polling), x6886_poll_us=N, x6886_ticks=N, x6886_spi_ticks=N,
- * x6886_bitbang=1, fts_reg=N, fts_frame=N, fts_head=N, fts_point=N, fts_x_off=N,
- * fts_y_off=N, fts_xy_bytes=N, fts_reset_ms=N.
+ * 3 + bounded polling), x6886_touch_ref=1 (opt-in for the MT6768-DERIVED GPIO/SPI
+ * register OFFSETS; the MMIO bases come from the DT), x6886_poll_us=N, x6886_ticks=N,
+ * x6886_spi_ticks=N, x6886_bitbang=1, fts_reg=N, fts_frame=N, fts_head=N, fts_point=N,
+ * fts_x_off=N, fts_y_off=N, fts_xy_bytes=N, fts_reset_ms=N.
  * Step 3 refuses to start unless the whole FTS frame layout is supplied: the dump does
  * not contain the compiled frame geometry, and no value is invented here.
+ *
+ * The FTS `display-coords` property is in 1/16 pixel units (1080*16-1, 2400*16-1),
+ * while the live controller reports whole pixels (1081x2401 cells for the
+ * 1080x2400 panel). Normalising a raw report against the 16x DT number put every
+ * touch in the top-left ~6% of the panel; report() below uses the pixel span.
  */
 
 #include <kern/clock.h>
@@ -62,7 +68,21 @@ extern void delay(int usec);
 #define FTS_PIXEL_Y             2400u           /* Conf_MultipleTest.ini:38 */
 #define FTS_BUF_BYTES           256u            /* mtk_tcm.c:451; Conf_MultipleTest.ini:50 */
 
-/* ---- Registers retained from the MT6768 driver (mtk_tcm.c) ------------------------------- */
+/* Raw report span: DT display-coords / 16, rounded up by one cell. The live IC
+ * reports 1081x2401 cells for this 1080x2400 panel (off-by-one on each axis).
+ * FTS_X_MAX/FTS_Y_MAX above are the DT's 16x values and must NOT be used as
+ * report maxima: doing so scales a full-screen touch into a 1/16-sized corner.
+ */
+#define FTS_RAW_X_MAX           1080u           /* fdt.dts:4507 (0x437f>>4)+1; ini:37; getprop.txt:1310 */
+#define FTS_RAW_Y_MAX           2400u           /* fdt.dts:4507 (0x95ff>>4)+1; ini:38; getprop.txt:1309 */
+#define FTS_LIVE_X_CELLS        1081u           /* live report: width cells (off-by-one, clamped) */
+#define FTS_LIVE_Y_CELLS        2401u           /* live report: height cells (off-by-one, clamped) */
+
+/* ---- Registers retained from the MT6768 driver (mtk_tcm.c) ------------------------------- *
+ * REF ONLY: none of these offsets is present in the X6886 fdt.dts or iomem.txt.
+ * They are the MT6768 TD4160 driver's offsets and are used only when the operator
+ * explicitly sets x6886_touch_ref=1. The base addresses above ARE dump-verified.
+ */
 
 #define GPIO_DIR0_SET           0x004u          /* mtk_tcm.c:63 */
 #define GPIO_DIR0_CLR           0x008u          /* mtk_tcm.c:64 */
@@ -104,6 +124,7 @@ static uint32_t spi_ticks = 2;                  /* mtk_tcm.c:153 */
 static uint32_t poll_us = 8000;                 /* mtk_tcm.c:452 */
 static uint32_t max_ticks = 360000u;
 static bool bitbang_enabled = false;
+static bool ref_offsets = false;               /* x6886_touch_ref=1, REF-only offsets */
 static uint32_t stalls, reports, touches, log_seq;
 static uint32_t last_x, last_y;
 static thread_t touch_thread;
@@ -415,24 +436,26 @@ report(const uint8_t *buffer, uint32_t length)
 		}
 		x = be_value(buffer + at + layout.x_off, layout.xy_bytes);
 		y = be_value(buffer + at + layout.y_off, layout.xy_bytes);
-		if (x > FTS_X_MAX) {
-			x = FTS_X_MAX;
+		/* DT display-coords are 1/16 pixel; raw reports are whole pixels with
+		 * one extra cell (1081x2401). Clamp to the panel span before scaling. */
+		if (x > FTS_RAW_X_MAX) {
+			x = FTS_RAW_X_MAX;
 		}
-		if (y > FTS_Y_MAX) {
-			y = FTS_Y_MAX;
+		if (y > FTS_RAW_Y_MAX) {
+			y = FTS_RAW_Y_MAX;
 		}
 		last_x = x;
 		last_y = y;
 		seen[i] = true;
 		touches++;
 		hakios_touch_post(down[i] ? HAKIOS_TOUCH_MOVE : HAKIOS_TOUCH_DOWN, i,
-		    x * 65535u / FTS_X_MAX, y * 65535u / FTS_Y_MAX);
+		    x * 65535u / FTS_RAW_X_MAX, y * 65535u / FTS_RAW_Y_MAX);
 		down[i] = true;
 	}
 	for (uint32_t i = 0; i < FTS_MAX_POINTS; i++) {
 		if (down[i] && !seen[i]) {
 			hakios_touch_post(HAKIOS_TOUCH_UP, i,
-			    last_x * 65535u / FTS_X_MAX, last_y * 65535u / FTS_Y_MAX);
+			    last_x * 65535u / FTS_RAW_X_MAX, last_y * 65535u / FTS_RAW_Y_MAX);
 			down[i] = false;
 		}
 	}
@@ -499,6 +522,15 @@ static bool
 x6886_ready(void)
 {
 	uint32_t bad[6], orig, sample;
+
+	/* No register OFFSET in this file is in fdt.dts/iomem.txt: the MT6768
+	 * GPIO/SPI offsets are REF. Do not map, read or write anything without opt-in. */
+	if (!ref_offsets) {
+		bad[0] = 0;
+		x6886_trace(STAGE_MAP, 3, bad, 1);
+		printf("[X6886-touch] set x6886_touch_ref=1 to allow REF GPIO/SPI offsets\n");
+		return false;
+	}
 
 	spi = ml_io_map(X6886_SPI1_PHYS, X6886_SPI_SIZE);
 	gpio = ml_io_map(X6886_GPIO_PHYS, X6886_GPIO_SIZE);
@@ -623,12 +655,18 @@ x6886_touch_init(void)
 	if (PE_parse_boot_argn("x6886_bitbang", &one, sizeof(one)) && one == 1) {
 		bitbang_enabled = true;
 	}
-	printf("[X6886-touch] X6886 FT3683G on SPI1, step %u, ticks=%u, poll=%u us\n",
-	    step, spi_ticks, poll_us);
-	if (FTS_X_MAX / 16u != FTS_PIXEL_X - 1u || FTS_Y_MAX / 16u != FTS_PIXEL_Y - 1u) {
+	if (PE_parse_boot_argn("x6886_touch_ref", &one, sizeof(one)) && one == 1) {
+		ref_offsets = true;
+	}
+	printf("[X6886-touch] X6886 FTS on SPI1, step %u, ticks=%u, poll=%u us, ref=%u\n",
+	    step, spi_ticks, poll_us, (unsigned)ref_offsets);
+	if ((FTS_X_MAX >> 4) + 1u != FTS_PIXEL_X ||
+	    (FTS_Y_MAX >> 4) + 1u != FTS_PIXEL_Y) {
 		printf("[X6886-touch] dump coords and ini pixels disagree; nothing is touched\n");
 		return;
 	}
+	printf("[X6886-touch] raw span %ux%u, live cells %ux%u (clamped)\n",
+	    FTS_RAW_X_MAX, FTS_RAW_Y_MAX, FTS_LIVE_X_CELLS, FTS_LIVE_Y_CELLS);
 	if (!x6886_ready()) {
 		return;
 	}

@@ -281,6 +281,18 @@ mmu_on:
     isb
     ret
 
+/* dcache_inval_range(va, len): invalidate only, never write our stale lines back. */
+.global dcache_inval_range
+dcache_inval_range:
+    add     x1, x0, x1
+    bic     x0, x0, #63
+1:  dc      ivac, x0
+    add     x0, x0, #64
+    cmp     x0, x1
+    b.lo    1b
+    dsb     sy
+    ret
+
 /* dcache_clean_range(va, len): clean and invalidate to the point of coherency */
 dcache_clean_range:
     add     x1, x0, x1

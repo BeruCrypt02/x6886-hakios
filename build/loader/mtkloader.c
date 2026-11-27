@@ -148,7 +148,7 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
 #endif
 /* More for the kernel's command line: cores, the clock (epoch=), whatever a run wants to try. */
 #ifndef XNU_EXTRA_ARGS
-#define XNU_EXTRA_ARGS      "cpus=1"
+#define XNU_EXTRA_ARGS      "cpus=1 launchd_unsecure_cache=1 mali=1 mali_trace=1 mali_hwctl=1 keep_words=panic(cpu"
 #endif
 /* The serial number the system is told (the device tree's serial-number): a placeholder, not any real device's.
  * A real build sets its own with -DXNU_SERIAL=..., which is never committed. */
@@ -180,9 +180,9 @@ static const uint8_t core_order[HAKIOS_LOADER_CORE_ORDER_COUNT] = HAKIOS_LOADER_
 #define XNU_ROOT_ARG        "rd=md0"
 #endif
 #if XNU_VERBOSE
-#define XNU_BOOT_ARGS       "debug=0x8 serial=3 " XNU_ROOT_ARG " -v " XNU_EXTRA_ARGS " loader_return_after=" XNU_RETURN_AFTER
+#define XNU_BOOT_ARGS       "debug=0x8 " XNU_ROOT_ARG " -v " XNU_EXTRA_ARGS " loader_return_after=" XNU_RETURN_AFTER
 #else
-#define XNU_BOOT_ARGS       "debug=0x8 serial=3 " XNU_ROOT_ARG " " XNU_EXTRA_ARGS " loader_return_after=" XNU_RETURN_AFTER
+#define XNU_BOOT_ARGS       "debug=0x8 " XNU_ROOT_ARG " " XNU_EXTRA_ARGS " loader_return_after=" XNU_RETURN_AFTER
 #endif
 
 /* The loader's text + data + BSS reach 0x4005f000, i.e. 0x4f000 past _start.
@@ -277,6 +277,8 @@ struct payload_info {
 	uint32_t kernel_size;
 	const uint8_t *ramdisk;
 	uint32_t ramdisk_size;
+	const uint8_t *ramdisk1;
+	uint32_t ramdisk1_size;
 };
 
 /* The XNU symbols the loader works with (kernel virtual addresses, 0 if absent). */
@@ -704,6 +706,9 @@ static int parse_payload(struct payload_info *pi)
 		} else if (strcmp(e->name, "ramdisk") == 0) {
 			pi->ramdisk = p + sizeof(*e);
 			pi->ramdisk_size = e->size;
+		} else if (strcmp(e->name, "ramdisk1") == 0) {
+			pi->ramdisk1 = p + sizeof(*e);
+			pi->ramdisk1_size = e->size;
 		}
 		p += sizeof(*e) + ((e->size + 15) & ~15u);
 	}
@@ -722,8 +727,7 @@ static void find_syms(const uint8_t *kernel, struct xnu_syms *s)
 		"_nprocs", "_tasks_count", "_initproc", "_gic_v3_irq_cpu_init",
 		"_gic_unhandled_count", "_gic_last_unhandled", "_gic_active_iar",
 		"_hakios_host_keep", "_hakios_host_keep_len", "_hakios_host_keep_dropped",
-		/* (the same in a kernel of the common tree, hakios-xnu-kernel's mtk/mt6768/drivers/gpu/hakios.mali.c) */
-		"_hakios_host_keep", "_hakios_host_keep_len", "_hakios_host_keep_dropped",
+		"_mtk_mali_host_keep", "_mtk_mali_host_keep_len", "_mtk_mali_host_keep_dropped",
 	};
 	_Static_assert(sizeof(struct xnu_syms) == sizeof(names), "every field needs its name, in order");
 	uint64_t *slots = (uint64_t *)s;
@@ -875,6 +879,7 @@ static int super_apfs_probe(void)
 		apfs_lba_off = 0;
 		apfs_part = "super";
 		out("super: raw APFS container at LBA 0 (NXSB at +0x20)\n");
+		for (int i = 0; i < 20; i++) { wr32(TOPRGU_RESTART, TOPRGU_RESTART_KEY); dbg_delay_ms(250); }
 		return 1;
 	}
 	out("super: no APFS header, using embedded md0 root26-darwin.apfs\n");
@@ -1118,7 +1123,7 @@ static void build_nvram_image(uint8_t *image)
 
 /* The device tree the kernel reads, in Apple's format. */
 static uint32_t build_device_tree(uint64_t dt_pa, uint64_t rd_pa, uint64_t rd_size,
-    uint64_t sys_pa, uint64_t sys_size)
+    uint64_t rd1_pa, uint64_t rd1_size, uint64_t sys_pa, uint64_t sys_size)
 {
 	struct dt_writer w = { .base = (uint8_t *)dt_pa, .cur = (uint8_t *)dt_pa, .depth = 0 };
 	uint64_t cntfrq = dbg_freq();
@@ -1188,8 +1193,12 @@ static uint32_t build_device_tree(uint64_t dt_pa, uint64_t rd_pa, uint64_t rd_si
 		}
 	} else if (rd_size != 0) {
 		uint64_t rd_reg[2] = { rd_pa, rd_size };
-		/* (with the system image on the eMMC the payload stays md1, where stage0 mounts it) */
+		/* md0 is flashboot.apfs (stage0); md1 is root26-darwin.apfs (init). */
 		dt_prop(&w, XNU_ROOT_EMMC ? "RAMDisk1" : "RAMDisk", rd_reg, sizeof(rd_reg));
+		if (rd1_size != 0) {
+			uint64_t rd1_reg[2] = { rd1_pa, rd1_size };
+			dt_prop(&w, "RAMDisk1", rd1_reg, sizeof(rd1_reg));
+		}
 	}
 	dt_end(&w);
 	dt_end(&w);
@@ -1673,6 +1682,87 @@ static void show_log_tail(uint32_t lines)
 	}
 }
 
+/* Show the interesting lines of XNU's log on the panel, with room for a screenshot. */
+static int memeq(const volatile char *a, const char *b, uint32_t n)
+{
+	for (uint32_t i = 0; i < n; i++) {
+		if (a[i] != b[i]) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void show_log_failures(void)
+{
+	return; /* printed via out(), which appends to ramoops and wraps: repeated text. */
+	static const char *const keys[] = {
+		"FAIL", "failed", "error", "Error", "panic", "PANIC", "EPERM", "ENOENT",
+		"launchd", "launchd.darwin", "dyld", "code signature", "non-platform",
+		"keybag", "persona", "usermanagerd", "notifyd", "launchd_cache", "fips",
+		"daemon", "boot task", "system service", "reboot", "halt", "initial unload"
+	};
+	uint32_t size = PLOG_HDR->size, start = PLOG_HDR->start, i, line = 0, shown = 0;
+	const uint32_t max_lines = 28;
+
+	if (!fbc.base || size == 0 || size != start) {
+		return;
+	}
+	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
+	fbc.top = fbc.y = 16;
+	fbc.x = 0;
+	fbc.scale = 2;
+	fbc.fg = 0xffffffffu;
+	out("=== XNU log: failures and launchd lines ===\n");
+	shown++;
+	/* First pass: find where the XNU log starts in the saved console log. */
+	for (i = 0; i < size; i++) {
+		if (i + 24 <= size && memeq(&PLOG_DATA[i], "=== XNU log (", 13)) {
+			break;
+		}
+	}
+	for (; i < size && shown < max_lines; i++) {
+		uint32_t a = i, b;
+		int hit = 0;
+
+		while (i < size && PLOG_DATA[i] != '\n') {
+			i++;
+		}
+		b = i;
+		line++;
+		for (uint32_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
+			const char *key = keys[k];
+			uint32_t n = 0;
+			while (key[n]) {
+				n++;
+			}
+			for (uint32_t at = a; at + n <= b; at++) {
+				if (memeq(&PLOG_DATA[at], key, n)) {
+					hit = 1;
+					break;
+				}
+			}
+			if (hit) {
+				break;
+			}
+		}
+		if (hit) {
+			out("#");
+			out_dec(line);
+			out(" ");
+			for (uint32_t k = a; k < b; k++) {
+				fbcon_putc(PLOG_DATA[k]);
+			}
+			out("\n");
+			shown++;
+		}
+	}
+	for (;;) {
+		wr32(TOPRGU_RESTART, TOPRGU_RESTART_KEY);
+		dbg_delay_ms(250);
+	}
+}
+
 /*
  * A kernel virtual address to physical through XNU's own page tables (TTBR1_EL1; 4K or 16K
  * granule), as they were when it came back. 0 if not mapped.
@@ -2026,8 +2116,7 @@ void xnu_returned(uint64_t log_pa, uint64_t len, uint64_t reason, uint64_t code,
 	dbg_puts("=== end of XNU log ===\n");
 	save_host_keep(&xsyms);
 	show_log_tail(40);
-	dbg_delay_ms(20000);
-	reset_board();
+	halt_readable();
 }
 
 /*
@@ -2103,20 +2192,26 @@ static void rescue_log(void)
 	out("\n");
 	if (!parse_payload(&pi)) {
 		out("no XNU payload at base+res3\n");
-		diag_pause(5000);
+		diag_pause(3000);
 		return;
 	}
 	out("kernel "); out_hex((uint64_t)pi.kernel);
 	out(" size "); out_dec(pi.kernel_size);
 	out("\n");
-	find_syms(pi.kernel, &s);
+	/* After a watchdog reset the payload in DRAM may be stale: use the symbols
+	 * captured before the jump whenever they are present. */
+	if (xsyms.log && xsyms.log_len && xsyms.log_ring_at && xsyms.log_wrapped) {
+		s = xsyms;
+	} else {
+		find_syms(pi.kernel, &s);
+	}
 	if (!s.log || !s.log_len || !s.log_ring_at || !s.log_wrapped) {
 		out("XNU log symbols not found: log="); out_hex(s.log);
 		out(" len="); out_hex(s.log_len);
 		out(" ring_at="); out_hex(s.log_ring_at);
 		out(" wrapped="); out_hex(s.log_wrapped);
 		out("\n");
-		diag_pause(5000);
+		diag_pause(3000);
 		return;
 	}
 	/* osfmk/arm64/loader_return.c: a 256 KB head, then a 1 MB ring */
@@ -2764,7 +2859,9 @@ static void boot_banner(uint64_t entry_pa)
 	out("OVL0      "); out_hex(OVL0_BASE); out(" src "); out_hex(rd32(OVL0_BASE + OVL_SRC_CON)); out("\n");
 	out("fb        "); out_hex(fb_base); out(" pitch "); out_dec(fb_pitch); out("\n");
 	out("XNUP      "); out_hex(xnup); out("\n");
+	out("XNUP2     "); out_hex(xnup); out("\n");
 	out("XNUP ent  "); out_hex(entry_pa); out("\n");
+	out("XNUP ent2 "); out_hex(entry_pa); out("\n");
 	out("jump in 3s (TOPRGU kick)\n");
 
 	for (int i = 0; i < 12; i++) {
@@ -2809,7 +2906,7 @@ static void __attribute__((noreturn)) run_xnu(void)
 	out(" bytes\n");
 
 	const struct mach_header_64 *mh = (const struct mach_header_64 *)pi.kernel;
-	uint64_t vm_hi = 0, entry_va = 0;
+	uint64_t vm_hi = 0, entry_va = 0, stub_slot_pa = 0;
 	const struct load_command *lc = (const struct load_command *)(mh + 1);
 	for (uint32_t i = 0; i < mh->ncmds; i++, lc = (const void *)((const uint8_t *)lc + lc->cmdsize)) {
 		if (lc->cmd == LC_SEGMENT_64) {
@@ -2823,6 +2920,15 @@ static void __attribute__((noreturn)) run_xnu(void)
 			uint64_t dst_pa = kva_to_pa(sg->vmaddr);
 			memset((void *)dst_pa, 0, sg->vmsize);
 			memcpy((void *)dst_pa, pi.kernel + sg->fileoff, sg->filesize);
+			/* find_syms() may miss _loader_stub_slot: locate its magic in the copied image. */
+			if (!stub_slot_pa) {
+				for (uint64_t off = 0; off + 8 <= sg->filesize; off += 8) {
+					if (*(const volatile uint64_t *)(dst_pa + off) == 0x545352444c554e58ULL) {
+						stub_slot_pa = dst_pa + off;
+						break;
+					}
+				}
+			}
 		} else if (lc->cmd == LC_UNIXTHREAD) {
 			entry_va = ((const uint64_t *)((const uint8_t *)lc + 16))[32];
 		}
@@ -2931,15 +3037,27 @@ static void __attribute__((noreturn)) run_xnu(void)
 	}
 
 	/* Have XNU come back here on a panic or an early exception. */
-	if (s.stub_slot) {
-		volatile uint64_t *slot = (volatile uint64_t *)kva_to_pa(s.stub_slot);
-		if (slot[0] == 0x545352444c554e58ULL) { /* "XNULDRST" */
+	{
+		volatile uint64_t *slot = NULL;
+		const char *how = "none";
+		uint64_t sym_pa = s.stub_slot ? kva_to_pa(s.stub_slot) : 0;
+		out("stub slot sym "); out_hex(s.stub_slot);
+		out(" magic "); out_hex(sym_pa ? *(const volatile uint64_t *)sym_pa : 0);
+		out(" scan "); out_hex(stub_slot_pa); out("\n");
+		if (sym_pa && *(const volatile uint64_t *)sym_pa == 0x545352444c554e58ULL) {
+			slot = (volatile uint64_t *)sym_pa;
+			how = "sym";
+		} else if (stub_slot_pa && *(const volatile uint64_t *)stub_slot_pa == 0x545352444c554e58ULL) {
+			slot = (volatile uint64_t *)stub_slot_pa;
+			how = "scan";
+		}
+		if (slot) {
 			slot[1] = sym_xnu_return_stub();
 			slot[2] = XNU_CHECKPOINT;
 			slot[3] = XNU_SLIDE;
-			out("return stub at ");
-			out_hex(slot[1]);
-			out("\n");
+			out("return stub at "); out_hex(slot[1]); out(" ("); out(how); out(")\n");
+		} else {
+			out("return stub NOT FOUND: XNU cannot hand its log back\n");
 		}
 	}
 
@@ -2950,14 +3068,21 @@ static void __attribute__((noreturn)) run_xnu(void)
 		memset((void *)rd_pa, 0, rd_size);
 		memcpy((void *)rd_pa, pi.ramdisk, pi.ramdisk_size);
 	}
+	uint64_t rd1_pa = rd_pa + rd_size;
+	uint64_t rd1_size = (pi.ramdisk1_size + PAGE_SIZE_MAX - 1) & ~(PAGE_SIZE_MAX - 1);
+	if (rd1_size) {
+		memset((void *)rd1_pa, 0, rd1_size);
+		memcpy((void *)rd1_pa, pi.ramdisk1, pi.ramdisk1_size);
+	}
 	/* and the big one off the flash, if it is there (with XNU_ROOT_EMMC the kernel reads it itself) */
 	uint64_t sys_size;
 
 	if (!XNU_ROOT_EMMC && super_apfs_probe()) {
 		uint64_t slba = 0, sblocks = 0;
 
-		if (UFS_DARWIN_BLOCK && gpt_find("super", &slba, &sblocks)) {
-			ufs_darwin_publish(slba, sblocks);
+		if (UFS_DARWIN_BLOCK && gpt_find("super", &slba, &sblocks) &&
+		    sblocks > apfs_lba_off) {
+			ufs_darwin_publish(slba + apfs_lba_off, sblocks - apfs_lba_off);
 			out("root: super APFS via /dev/ufs_darwin, no DRAM preload\n");
 			block_server_start();
 			sys_size = 0;
@@ -2972,8 +3097,8 @@ static void __attribute__((noreturn)) run_xnu(void)
 	uint64_t sys_pa = sys_size ? SYSTEM_PA : 0;
 	uint64_t sys_span = (sys_size + PAGE_SIZE_MAX - 1) & ~(PAGE_SIZE_MAX - 1);
 
-	uint64_t dt_pa = sys_size ? sys_pa + sys_span : rd_pa + rd_size;
-	uint32_t dt_len = build_device_tree(dt_pa, rd_pa, rd_size, sys_pa, sys_span);
+	uint64_t dt_pa = sys_size ? sys_pa + sys_span : rd1_pa + rd1_size;
+	uint32_t dt_len = build_device_tree(dt_pa, rd_pa, rd_size, rd1_pa, rd1_size, sys_pa, sys_span);
 	uint64_t ba_pa = (dt_pa + dt_len + PAGE_SIZE_MAX - 1) & ~(PAGE_SIZE_MAX - 1);
 	uint64_t top = ba_pa + PAGE_SIZE_MAX;
 
@@ -2989,7 +3114,7 @@ static void __attribute__((noreturn)) run_xnu(void)
 	ba->deviceTreeP = dt_pa - XNU_SLIDE;
 	ba->deviceTreeLength = dt_len;
 	ba->video.v_baseAddr = fb_base;
-	ba->video.v_display = XNU_VERBOSE ? 0 : 1; /* 0: the kernel's text console, 1: for the system to draw */
+	ba->video.v_display = 1; /* keep graphics for iOS even while -v console logs */
 	ba->video.v_rowBytes = fb_pitch;
 	ba->video.v_width = PANEL_W;
 	ba->video.v_height = PANEL_H;
@@ -2997,8 +3122,10 @@ static void __attribute__((noreturn)) run_xnu(void)
 	char cmd[512];
 	uint32_t cn = 0;
 
-	cn = cmd_put(cmd, cn, "debug=0x8 serial=3 " XNU_ROOT_ARG " ");
+	cn = cmd_put(cmd, cn, "debug=0x8 " XNU_ROOT_ARG " ");
 	if (UFS_DARWIN_BLOCK && ufs_darwin_started) {
+		/* Only publish root_apfs when the block server is actually running;
+		 * otherwise init mounts a device that does not exist. */
 		cn = cmd_put(cmd, cn, "ufs=2 root_apfs=ufs_darwin ufs_shared_pa=");
 		cn = cmd_hex64(cmd, cn, ufs_darwin_page_pa());
 		cn = cmd_put(cmd, cn, " ");
@@ -3013,7 +3140,11 @@ static void __attribute__((noreturn)) run_xnu(void)
 	out("md0 ");
 	out_hex(sys_size ? sys_pa : rd_pa);
 	out(sys_size ? " (the system image), md1 " : XNU_ROOT_EMMC ? " is none: md1 (root.apfs), the system image on the eMMC" :
-	    " (root.apfs only)");
+	    " (flashboot.apfs), md1 ");
+	if (!sys_size) {
+		out_hex(rd1_pa);
+		out(" (root26-darwin.apfs)");
+	}
 	if (sys_size) {
 		out_hex(rd_pa);
 	}
@@ -3114,6 +3245,9 @@ static void __attribute__((noreturn)) run_xnu(void)
 
 	dcache_clean_range(kern_pa, kern_hi - kern_pa);
 	dcache_clean_range(rd_pa, rd_size);
+	if (rd1_size) {
+		dcache_clean_range(rd1_pa, rd1_size);
+	}
 	dcache_clean_range(dt_pa, dt_len);
 	dcache_clean_range(ba_pa, sizeof(*ba));
 	boot_banner(kva_to_pa(entry_va));
@@ -4090,14 +4224,16 @@ void mtkloader_main(uint64_t dtb)
 	/* LK's boot reason is still worth logging, but it no longer picks a target. */
 	lk_boot_state();
 
-	/* The watchdog cut XNU short. Keep its log, clear the marker, boot XNU again. */
-	if (mark == MARK_RUNNING || mark == MARK_DONE) {
+	/* A clean return already saved XNU's log in pstore: do not wipe it. */
+	if (mark == MARK_RUNNING) {
 		rescue_log();
 		marker_set(0);
 		out("\n=== previous XNU run ended; booting XNU again ===\n");
 	}
-
-	plog_reset();
+	if (mark != MARK_DONE) {
+		plog_reset();
+	}
+	marker_set(0);
 #if TOUCH_PROBE
 	fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
 	fbc.x = 16;
@@ -4141,11 +4277,11 @@ void mtkloader_main(uint64_t dtb)
 #endif
 	/* XNU-direct: every boot goes here. No menu, no pmsg opt-in, no Android. */
 #if HAKIOS_HAS_UFS
-	/* Take the UFS transfer list from LK before any GPT/system read. The list
-	 * lives at kernel_base + 64 MB: inside our memory window, below SYSTEM_PA
-	 * (+128 MB) and the payload stage, clear of LK, ATF and the framebuffer. */
+	/* UFS transfer list: base + 8 MB, BELOW the kernel at base + 48 MB and
+	 * far below md0/SYSTEM_PA. The old base + 64 MB overlapped the copied
+	 * kernel image (0x143004000 + 17.9 MB ended at 0x144112f4). */
 	out("UFS init: ");
-	if (!ufs_init(XNU_PHYS_BASE + 0x04000000ULL)) {
+	if (!ufs_init(XNU_PHYS_BASE + 0x00800000ULL)) {
 		/* LK powers UFSHCI down before handoff on MT6789. The XNUP payload is
 		 * embedded in this image, so keep going: chaining Android here is what
 		 * produced "No Android Kernel in this image: reset" on the phone. */
@@ -4160,7 +4296,7 @@ void mtkloader_main(uint64_t dtb)
 	fbc.x = 16;
 	fbc.y = fbc.top = 200;
 	fbc.fg = 0xff40ff40u;
-	out("== mtkloader: Darwin/XNU on " HAKIOS_BOARD_NAME " (" HAKIOS_SOC_NAME ") ==\n");
+	out("== mtkloader BUILD MALIFULL1: Darwin/XNU on " HAKIOS_BOARD_NAME " (" HAKIOS_SOC_NAME ") ==\n");
 	fbc.fg = 0xffffffffu;
 	out("LK dtb ");
 	out_hex(dtb);

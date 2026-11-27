@@ -108,6 +108,20 @@ x6886_pstore_write(const char *message, unsigned length)
 #define AUXADC_ADC0             0x1088u         /* mtk_battery.c:59 */
 #define AUXADC_READY            (1u << 15)      /* mtk_battery.c:19-20 */
 
+/* REF-only gauge-latch registers/scale. None of these appear in the X6886 dump;
+ * sources: mtk_battery.c:47,51-54,60 and (corroboration only)
+ * alps.../drivers/power/supply/mt6358-gauge.c:51,66,69,140. */
+#define MT6358_FGADC_CON1       0x0d0au
+#define FGADC_CON1_READ         (1u << 0)
+#define FGADC_CON1_CLEAR        (1u << 3)
+#define FGADC_CON1_LATCHED      (1u << 15)
+#define MT6358_FGADC_CUR_CON0   0x0d8au
+#define MT6358_FGADC_CAR_CON0   0x0d14u
+#define MT6358_FGADC_CAR_CON1   0x0d16u
+#define MT6358_AUXADC_RQST0     0x1108u
+#define FG_COUNT_NA             762939ULL      /* REF mtk_battery.c:62: 250 mV/65536 over 5 mOhm */
+#define BATADC_CONVERT_SPINS    100u            /* REF mtk_battery.c:148/175 wait counts */
+
 #define COUNT_NV                164795ULL      /* mtk_battery.c:62: 1.8 V * 3 / 32768, nV per count */
 #define X6886_FULL_MV           4350u           /* fdt.dts:8378/8488: 0x10fe = 4.35 V */
 #define X6886_MIN_MV            2500u           /* mtk_battery.c:256: sanity floor */
@@ -117,6 +131,7 @@ x6886_pstore_write(const char *message, unsigned length)
 
 static volatile uint32_t *pwrap;
 static bool batt_pmic_optin;
+static bool batt_fg_optin;
 static LCK_GRP_DECLARE(batt_grp, "x6886-batt");
 static LCK_MTX_DECLARE(batt_pwrap_lock, &batt_grp);
 
@@ -153,13 +168,95 @@ pmic_read(uint32_t reg, uint16_t *value)
 	return ok;
 }
 
+/* REF-only PMIC write, same WACS2 transaction/FSM bound as pmic_read(). The
+ * command encoding is from mtk_camera.c:165 (the camera and battery share the
+ * pwrap). Only called from the x6886_batt_fg=1 path. */
+static bool
+pmic_write(uint32_t reg, uint16_t value)
+{
+	bool ok;
+
+	lck_mtx_lock(&batt_pwrap_lock);
+	ok = pwrap_wait(0);
+	if (ok) {
+		pwrap[PWRAP_WACS2_CMD / 4] = (1u << 31) | ((reg >> 1) << 16) | value;
+		ok = pwrap_wait(6);
+	}
+	lck_mtx_unlock(&batt_pwrap_lock);
+	return ok;
+}
+
+/* Latch FGADC once to obtain current and the coulomb counter, transcribed from
+ * mtk_battery.c:163-194. Every wait is bounded; the saved CON1 value is always
+ * restored, even on failure. Returns false (no fabricated value) on any miss. */
+static bool
+gauge_latch_ref(int32_t *current_ua, uint32_t *charge)
+{
+	uint16_t con1 = 0, got = 0, low = 0, high = 0, cur = 0;
+	bool ok;
+
+	if (!pmic_read(MT6358_FGADC_CON1, &con1)) {
+		return false;
+	}
+	con1 &= (uint16_t)~(FGADC_CON1_READ | FGADC_CON1_CLEAR | FGADC_CON1_LATCHED);
+	ok = pmic_write(MT6358_FGADC_CON1, (uint16_t)(con1 | FGADC_CON1_READ));
+	for (unsigned spin = 0; ok && spin < BATADC_CONVERT_SPINS; spin++) {
+		if (!pmic_read(MT6358_FGADC_CON1, &got)) {
+			ok = false;
+			break;
+		}
+		if ((got & FGADC_CON1_LATCHED) != 0) {
+			break;
+		}
+		delay(1000);
+	}
+	if (ok && (got & FGADC_CON1_LATCHED) == 0) {
+		ok = false;
+	}
+	if (ok) {
+		ok = pmic_read(MT6358_FGADC_CUR_CON0, &cur) &&
+		    pmic_read(MT6358_FGADC_CAR_CON0, &low) &&
+		    pmic_read(MT6358_FGADC_CAR_CON1, &high);
+	}
+	(void)pmic_write(MT6358_FGADC_CON1, (uint16_t)(con1 | FGADC_CON1_CLEAR));
+	(void)pmic_write(MT6358_FGADC_CON1, con1);
+	if (!ok) {
+		return false;
+	}
+	*current_ua = (int32_t)(((int64_t)(int16_t)cur * (int64_t)FG_COUNT_NA) / 1000LL);
+	*charge = ((uint32_t)high << 16) | low;
+	return true;
+}
+
+/* Ask for a fresh BATADC conversion, then read ADC0 (REF mtk_battery.c:138-157).
+ * Bounded: BATADC_CONVERT_SPINS reads at 1 ms each. */
+static bool
+batadc_request_ref(uint16_t *adc)
+{
+	if (!pmic_write(MT6358_AUXADC_RQST0, 1)) {
+		return false;
+	}
+	delay(3000);                    /* REF mtk_battery.c:147: let the first result clear */
+	for (unsigned spin = 0; spin < BATADC_CONVERT_SPINS; spin++) {
+		if (!pmic_read(AUXADC_ADC0, adc)) {
+			return false;
+		}
+		if ((*adc & AUXADC_READY) != 0) {
+			return true;
+		}
+		delay(1000);
+	}
+	return false;
+}
+
 static void
 batt_thread(__unused void *arg, __unused wait_result_t wr)
 {
 	uint32_t caps = 0;
 	uint16_t rtc = 0, adc = 0, chr = 0;
-	int32_t percent_hundredths = -1, mv = 0;
+	int32_t percent_hundredths = -1, mv = 0, current_ua = 0;
 	uint32_t ticks = 0;
+	static bool said_fg;
 
 	(void)PE_parse_boot_argn("x6886_batt_ticks", &caps, sizeof(caps));
 	if (caps == 0 || caps > X6886_TICKS) {
@@ -174,6 +271,27 @@ batt_thread(__unused void *arg, __unused wait_result_t wr)
 		    ((rtc >> 8) & 0x7f) <= 100;
 		bool have_adc = batt_pmic_optin && pmic_read(AUXADC_ADC0, &adc) && (adc & AUXADC_READY) != 0;
 		bool charger = batt_pmic_optin && pmic_read(CHR_CON0, &chr) && (chr & CHR_CON0_CHRDET) != 0;
+		uint32_t charge = 0;
+
+		current_ua = 0;                 /* never publish a stale latch on a later miss */
+		/* REF-only: latch the gauge for a real current/coulomb reading and
+		 * request a fresh BATADC conversion. Both are bounded and restore
+		 * the PMIC state; failure leaves the read-only values in place. */
+		if (batt_fg_optin) {
+			if (gauge_latch_ref(&current_ua, &charge)) {
+				if (!said_fg || ticks % 300u == 0) {
+					X6886_LOG("FGADC latched: %d uA, charge count %#x (REF offsets)\n",
+					    current_ua, charge);
+					said_fg = true;
+				}
+			} else if (!said_fg) {
+				said_fg = true;
+				X6886_LOG("FGADC did not latch; current remains 0 (no fabricated value)\n");
+			}
+			if (batadc_request_ref(&adc)) {
+				have_adc = true;
+			}
+		}
 
 		if (!have_adc && !have_soc) {
 			if (ticks == 1) {
@@ -197,7 +315,7 @@ batt_thread(__unused void *arg, __unused wait_result_t wr)
 		percent_hundredths = have_soc ? (int32_t)((rtc >> 8) & 0x7fu) * 100 : -1;
 		b.percent_hundredths = percent_hundredths;
 		b.voltage_uv = mv * 1000;
-		b.current_ua = 0;               /* no FGADC latch: writing its control register is forbidden here */
+		b.current_ua = current_ua;      /* latched FGADC when x6886_batt_fg=1, else 0 */
 		b.temperature_hundredths = 2500;        /* mtk_battery.c:294: not read */
 		b.present = 1;
 		b.external = charger;
@@ -232,7 +350,16 @@ x6886_battery_init(void)
 	if (!batt_pmic_optin) {
 		X6886_LOG("PMIC reads skipped: offsets 0x5aa/0xa88/0x1088 are not DTB-proven; "
 		    "use x6886_batt_pmic=1 only after owner sign-off\n");
-		return 0;
+		return ENOTSUP;         /* no hardware work: do not report success */
+	}
+	{
+		uint32_t fg = 0;
+
+		(void)PE_parse_boot_argn("x6886_batt_fg", &fg, sizeof(fg));
+		batt_fg_optin = fg != 0;
+		if (batt_fg_optin) {
+			X6886_LOG("REF gauge latch enabled (x6886_batt_fg=1); offsets not DTB-proven\n");
+		}
 	}
 	pwrap = (volatile uint32_t *)ml_io_map(X6886_PWRAP_PHYS, X6886_PWRAP_SIZE);
 	if (pwrap == NULL) {

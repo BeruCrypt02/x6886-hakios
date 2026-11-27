@@ -15,6 +15,9 @@ out/
 *.apfs
 *.dtb
 *.log
+.antumbra_state
+*.ramoops.txt
+dump-analysis/diag-console-ramoops.txt
 .firecrawl/
 __pycache__/
 *.pyc

@@ -30,6 +30,22 @@
 #include <skywalk/os_skywalk_private.h>
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+extern void ml_io_unmap(vm_offset_t addr, vm_size_t size);
+extern void delay(int usec);
+
+/* DTB-verified windows for the BT controller path. */
+#define X6886_CONNSYS_PHYS      0x18002000u     /* fdt.dts:6955-6970 (first of 11 windows) */
+#define X6886_CONNSYS_SIZE      0x1000u
+#define X6886_BTIF_PHYS         0x1100c000u     /* fdt.dts:4477-4483 */
+#define X6886_BTIF_SIZE         0x1000u
+/* REF-only offsets, NOT DTB-proven: mtk_connsys.c:15,69-75 (other-board REF). */
+#define CONNSYS_HW_ID           0x00u
+#define CONNSYS_FW_ID           0x04u
+#define CONNSYS_IP_VER          0x10u
+#define CONNSYS_CONF_ID         0x1cu
+#define BT_HW_SPINS             64u
+#define BT_HW_DELAY_US          100u
+#define X6886_DEAD_BUS_VALUE    0xffffffffu     /* unclocked/unmapped bus sentinel */
 
 /* No backend is built in. The CONNSYS owner must register a real H4 send function. */
 typedef void (*x6886_bt_send_fn)(const uint8_t *bytes, unsigned length);
@@ -94,6 +110,65 @@ x6886_pstore_write(const char *message, unsigned length)
 	}                                                                     \
 } while (0)
 
+/* Hardware probe for the DTB-proven CONNSYS/BTIF windows. Two of the four ID
+ * registers use REF-only offsets (mtk_connsys.c:15,69-75) and are explicitly
+ * marked as such below; no REF value is treated as device truth. Both windows
+ * are unmapped on every path. Gated by x6886_bt_connsys=1. */
+static int
+x6886_bt_hw_probe_ref(void)
+{
+	volatile uint32_t *consys, *btif;
+	uint32_t hw = 0, fw = 0, ip = 0, conf = 0, btword = 0;
+	int error = ENXIO;
+	unsigned spin;
+
+	consys = (volatile uint32_t *)ml_io_map(X6886_CONNSYS_PHYS, X6886_CONNSYS_SIZE);
+	if (consys == NULL) {
+		X6886_LOG("cannot map CONNSYS %#x; no hardware work", X6886_CONNSYS_PHYS);
+		return ENXIO;
+	}
+	btif = (volatile uint32_t *)ml_io_map(X6886_BTIF_PHYS, X6886_BTIF_SIZE);
+	if (btif == NULL) {
+		X6886_LOG("cannot map BTIF %#x; no hardware work", X6886_BTIF_PHYS);
+		ml_io_unmap((vm_offset_t)consys, X6886_CONNSYS_SIZE);
+		return ENXIO;
+	}
+	for (spin = 0; spin < BT_HW_SPINS; spin++) {
+		hw = consys[CONNSYS_HW_ID / 4];
+		if (hw != X6886_DEAD_BUS_VALUE) {
+			break;
+		}
+		delay(BT_HW_DELAY_US);
+	}
+	if (spin == BT_HW_SPINS) {
+		X6886_LOG("CONNSYS window dead after %u spins; no controller claimed", BT_HW_SPINS);
+		error = EBUSY;
+		goto out;
+	}
+	for (spin = 0; spin < BT_HW_SPINS; spin++) {
+		btword = btif[0];
+		if (btword != X6886_DEAD_BUS_VALUE) {
+			break;
+		}
+		delay(BT_HW_DELAY_US);
+	}
+	if (spin == BT_HW_SPINS) {
+		X6886_LOG("BTIF window dead after %u spins; no controller claimed", BT_HW_SPINS);
+		error = EBUSY;
+		goto out;
+	}
+	fw = consys[CONNSYS_FW_ID / 4];
+	ip = consys[CONNSYS_IP_VER / 4];         /* REF-only offset, not DTB-proven */
+	conf = consys[CONNSYS_CONF_ID / 4];     /* REF-only offset, not DTB-proven */
+	X6886_LOG("CONNSYS %#x answered: HW_ID %#x FW_ID %#x (REF IP_VER %#x CONF_ID %#x); "
+	    "BTIF %#x word0 %#x", X6886_CONNSYS_PHYS, hw, fw, ip, conf,
+	    X6886_BTIF_PHYS, btword);
+	error = 0;
+out:
+	ml_io_unmap((vm_offset_t)btif, X6886_BTIF_SIZE);
+	ml_io_unmap((vm_offset_t)consys, X6886_CONNSYS_SIZE);
+	return error;
+}
 
 static LCK_GRP_DECLARE(btsk_lck_grp, "hakios-btsk");
 static LCK_MTX_DECLARE(btsk_lock, &btsk_lck_grp);
@@ -368,6 +443,19 @@ x6886_bt_init(void)
 	if (!x6886_bt_ready_gate || x6886_bt_send_backend == NULL) {
 		SAY("ENXIO: no registered H4 backend; transport-only, Bluetooth is not available");
 		return ENXIO;
+	}
+	{
+		uint32_t hw = 0;
+
+		(void)PE_parse_boot_argn("x6886_bt_connsys", &hw, sizeof(hw));
+		if (hw == 0) {
+			SAY("ENOTSUP: no CONNSYS/BTIF hardware work; x6886_bt_connsys=1 required");
+			return ENOTSUP;
+		}
+		error = (errno_t)x6886_bt_hw_probe_ref();
+		if (error != 0) {
+			return error;
+		}
 	}
 	read_random(&btsk_nx_ctx, sizeof(btsk_nx_ctx));
 	error = kern_nexus_register_domain_provider(NEXUS_TYPE_KERNEL_PIPE, (const uint8_t *)"hakios_bt", &dom_init, sizeof(dom_init),

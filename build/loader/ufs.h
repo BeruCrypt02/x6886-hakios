@@ -4,6 +4,10 @@
 
 #include <stdint.h>
 
+/* In start.S: descriptors and DMA buffers cross the cache/DMA boundary. */
+extern void dcache_clean_range(uint64_t va, uint64_t len);
+extern void dcache_inval_range(uint64_t va, uint64_t len);
+
 #define UFS_BASE            HAKIOS_SOC_UFS
 #define UFS_BLOCK_BYTES     4096u
 /* LUN 0/1 are the 4 MB boot LUNs; the GPT, super and userdata live on the main LUN 2. */
@@ -82,6 +86,7 @@
 #define QUERY_FLAG_FDEVICEINIT 0x01u
 
 #define UTRD_DW0_READ        (0x10000000u | 0x04000000u)
+#define UTRD_DW0_NODATA      0x10000000u
 #define OCS_INVALID         0x0000000Fu
 #define OCS_SUCCESS         0x00000000u
 
@@ -121,6 +126,7 @@ struct utp_transfer_cmd_desc {
 #define UFS_READ_BLOCKS_MAX 64u
 
 static uint64_t ufs_list_phys;
+static uint64_t ufs_gpt_list_phys;
 
 struct ufs_err {
     const char *what;
@@ -161,14 +167,27 @@ static void ufs_dump_state(const char *when)
     dbg_puts("\n");
 }
 
-static int ufs_fail(const char *what, uint32_t status)
+static int ufs_fail_soft(const char *what, uint32_t status)
 {
     ufs_last.what = what;
     ufs_last.status = status;
-    /* Any failure disarms UFS: the caller then boots the embedded XNUP ramdisk. */
-    ufs_list_phys = 0;
+    dbg_puts("UFS fail: "); dbg_puts(what); dbg_puts(" status "); dbg_hex(status, 8); dbg_puts("\n");
     ufs_dump_state(what);
     return 0;
+}
+
+static int ufs_fail(const char *what, uint32_t status)
+{
+    ufs_list_phys = 0;
+    return ufs_fail_soft(what, status);
+}
+
+/*Sense data starts after the 32-byte response header: 2-byte length, then fixed sense (IOS-for-Merlinx redwood_ufshc.c).*/
+static void ufs_dump_sense(const uint8_t *r)
+{
+    dbg_puts("UFS sense: key "); dbg_hex(r[34 + 2] & 0x0fu, 1);
+    dbg_puts(" asc "); dbg_hex(r[34 + 12], 2);
+    dbg_puts(" ascq "); dbg_hex(r[34 + 13], 2); dbg_puts("\n");
 }
 
 static void ufs_put_be32(uint8_t *p, uint32_t v)
@@ -194,6 +213,9 @@ static uint32_t ufs_get_be32(const uint8_t *p)
 #define UFS_HCE_TIMEOUT     1000u   /* x 1 ms */
 
 static int ufs_read_lun(uint32_t lun, uint64_t lba, uint32_t blocks, void *dst);
+static int ufs_tur(uint32_t lun);
+static int ufs_request_sense(uint32_t lun, uint8_t sense[18]);
+static void ufs_dump_sense(const uint8_t *r);
 
 /* stage 0 = PRE, 1 = POST (heliodarwin 0141 patch:758-759). SMC32 0x82000276 stays. */
 static uint64_t ufs_smc(uint64_t cmd, uint64_t val, uint64_t stage)
@@ -473,7 +495,18 @@ static int ufs_lun2_ready(void)
     static const char efi[] = "EFI PART";
 
     if (!ufs_read_lun(UFS_MAIN_LUN, 1, 1, ufs_gpt_buf)) {
-        return 0;
+        dbg_puts("UFS: LUN2 GPT read failed, trying LUN0\n");
+        ufs_list_phys = ufs_gpt_list_phys;
+        if (!ufs_read_lun(0, 1, 1, ufs_gpt_buf)) {
+            return 0;
+        }
+        for (uint32_t i = 0; i < sizeof(efi) - 1; i++) {
+            if (ufs_gpt_buf[i] != (uint8_t)efi[i]) {
+                return ufs_fail("LUN0 GPT", ufs_gpt_buf[i]);
+            }
+        }
+        dbg_puts("UFS: LUN0 GPT ready\n");
+        return 1;
     }
     for (uint32_t i = 0; i < sizeof(efi) - 1; i++) {
         if (ufs_gpt_buf[i] != (uint8_t)efi[i]) {
@@ -627,12 +660,21 @@ static int ufs_init(uint64_t list_phys)
         return 0;
     }
     ufs_list_phys = list_phys;
+    ufs_gpt_list_phys = list_phys;
     dbg_puts("UFS: transfer list handed off\n");
-    if (!ufs_complete_dev_init() || !ufs_lun2_ready()) {
+    if (!ufs_complete_dev_init()) {
         ufs_list_phys = 0;
         return 0;
     }
     dbg_puts("UFS: fDeviceInit done\n");
+    if (!ufs_tur(UFS_MAIN_LUN)) {
+        ufs_list_phys = 0;
+        return 0;
+    }
+    if (!ufs_lun2_ready()) {
+        ufs_list_phys = 0;
+        return 0;
+    }
     return 1;
 }
 
@@ -700,6 +742,10 @@ static int ufs_read_lun(uint32_t lun, uint64_t lba, uint32_t blocks, void *dst)
         prd->reserved = 0;
         prd->size = bytes - 1;
 
+        /* The controller is a DMA master: it must see the descriptors we just
+         * wrote, not stale cache lines from this core. */
+        dcache_clean_range((uint64_t)(uintptr_t)utrd, sizeof(*utrd));
+        dcache_clean_range((uint64_t)(uintptr_t)ucd, sizeof(*ucd));
         __asm__ volatile("dsb sy" ::: "memory");
         wr32(UFS_BASE + UFSHC_UTRLDBR, 1u);
         for (uint32_t i = 0; i < 20000000 && (rd32(UFS_BASE + UFSHC_UTRLDBR) & 1); i++) {
@@ -707,6 +753,10 @@ static int ufs_read_lun(uint32_t lun, uint64_t lba, uint32_t blocks, void *dst)
         if (rd32(UFS_BASE + UFSHC_UTRLDBR) & 1) {
             return ufs_fail("command timeout", rd32(UFS_BASE + UFSHC_UTRLDBR));
         }
+        /* The controller wrote OCS and the response UPIU into memory: drop
+         * our cached copies so the checks below see the real answer. */
+        dcache_inval_range((uint64_t)(uintptr_t)utrd, sizeof(*utrd));
+        dcache_inval_range((uint64_t)(uintptr_t)ucd, sizeof(*ucd));
         if ((utrd->dword_2 & 0xFu) != OCS_SUCCESS) {
             return ufs_fail("bad OCS", utrd->dword_2);
         }
@@ -716,7 +766,10 @@ static int ufs_read_lun(uint32_t lun, uint64_t lba, uint32_t blocks, void *dst)
                 return ufs_fail("bad response", r[0]);
             }
             if (r[3] != 0 || r[6] != 0 || r[7] != 0 || (r[1] & 0x60)) {
-                return ufs_fail("SCSI status", (uint32_t)r[6] | ((uint32_t)r[7] << 8));
+                dbg_puts("UFS scsi: response "); dbg_hex(r[6], 2);
+                dbg_puts(" status "); dbg_hex(r[7], 2); dbg_puts(" tag "); dbg_hex(r[3], 2); dbg_puts("\n");
+                ufs_dump_sense(r);
+                return ufs_fail("SCSI status", ((uint32_t)r[6] << 8) | r[7]);
             }
             if (ufs_get_be32(r + 12) != 0) {
                 return ufs_fail("residual bytes", ufs_get_be32(r + 12));
@@ -725,6 +778,112 @@ static int ufs_read_lun(uint32_t lun, uint64_t lba, uint32_t blocks, void *dst)
         done += n;
     }
     return 1;
+}
+
+/* SCSI command with no data phase: TEST UNIT READY and REQUEST SENSE preflight.
+ * Mirrors the whitelisted descriptors in IOS-for-Merlinx redwood_ufshc.c:
+ * TUR uses DD_NONE and an empty PRDT; REQUEST SENSE uses DD_IN with 18 bytes.
+ */
+static int ufs_scsi_simple(uint32_t lun, uint8_t op, uint8_t *buf, uint32_t len, int allow_check)
+{
+    struct utp_transfer_req_desc *utrd = (struct utp_transfer_req_desc *)ufs_list_phys;
+    struct utp_transfer_cmd_desc *ucd =
+        (struct utp_transfer_cmd_desc *)(ufs_list_phys + UFS_SLOTS * sizeof(*utrd));
+    struct ufshcd_sg_entry *prd = ucd->prd_table;
+    uint8_t *upiu = ucd->command_upiu;
+
+    if (!ufs_list_phys) {
+        return ufs_fail_soft("simple not initialized", 0);
+    }
+    for (uint32_t w = 0; w < sizeof(*utrd) / 4; w++) {
+        ((volatile uint32_t *)utrd)[w] = 0;
+    }
+    for (uint32_t i = 0; i < 512; i++) {
+        ucd->command_upiu[i] = 0;
+        ucd->response_upiu[i] = 0;
+    }
+    utrd->command_desc_base_addr_lo = (uint32_t)(uint64_t)ucd;
+    utrd->command_desc_base_addr_hi = (uint32_t)((uint64_t)ucd >> 32);
+    utrd->response_upiu_length = 512u / 4u;
+    utrd->response_upiu_offset = 512u / 4u;
+    utrd->dword_2 = OCS_INVALID;
+    utrd->dword_0 = len ? UTRD_DW0_READ : UTRD_DW0_NODATA;
+
+    if (len) {
+        prd->base_addr = (uint32_t)(uint64_t)buf;
+        prd->upper_addr = (uint32_t)((uint64_t)buf >> 32);
+        prd->reserved = 0;
+        prd->size = len - 1u;
+        utrd->prd_table_length = 1;
+        utrd->prd_table_offset = 1024u / 4u;
+    }
+
+    upiu[0] = UPIU_TRANSACTION_COMMAND;
+    upiu[1] = len ? UPIU_CMD_FLAGS_READ : 0;
+    upiu[2] = (uint8_t)(lun & 0x3fu);
+    upiu[3] = ++ufs_tag;
+    if (len) {
+        upiu[12] = (uint8_t)(len >> 24);
+        upiu[13] = (uint8_t)(len >> 16);
+        upiu[14] = (uint8_t)(len >> 8);
+        upiu[15] = (uint8_t)len;
+    }
+    upiu[16] = op;
+
+    __asm__ volatile("dsb sy" ::: "memory");
+    wr32(UFS_BASE + UFSHC_UTRLDBR, 1u);
+    for (uint32_t i = 0; i < UFS_QUERY_TIMEOUT && (rd32(UFS_BASE + UFSHC_UTRLDBR) & 1u); i++) {
+        dbg_delay_ms(1);
+    }
+    if (rd32(UFS_BASE + UFSHC_UTRLDBR) & 1u) {
+        wr32(UFS_BASE + UFSHC_UTRLCLR, ~1u);
+        return ufs_fail_soft("simple timeout", rd32(UFS_BASE + UFSHC_UTRLDBR));
+    }
+    if ((utrd->dword_2 & 0x0fu) != OCS_SUCCESS) {
+        return ufs_fail_soft("simple bad OCS", utrd->dword_2);
+    }
+    {
+        const uint8_t *r = ucd->response_upiu;
+        if ((r[0] & 0x3fu) != UPIU_TRANSACTION_RESPONSE) {
+            return ufs_fail_soft("simple bad response", r[0]);
+        }
+        if (r[3] != upiu[3] || r[6] != 0 ||
+            (r[7] != 0 && !(allow_check && r[7] == 0x02))) {
+            dbg_puts("UFS simple: resp "); dbg_hex(r[6], 2);
+            dbg_puts(" status "); dbg_hex(r[7], 2);
+            dbg_puts(" tag "); dbg_hex(r[3], 2); dbg_puts("\n");
+            ufs_dump_sense(r);
+            return ufs_fail_soft("simple SCSI status", r[7]);
+        }
+    }
+    return 1;
+}
+
+static int ufs_tur(uint32_t lun)
+{
+    /* After fDeviceInit a unit may be busy/UNIT ATTENTION; klios716 retries 5x with 5 ms. */
+    for (uint32_t i = 0; i < 5; i++) {
+        if (ufs_scsi_simple(lun, 0x00, 0, 0, 1)) {
+            dbg_puts("UFS: TEST UNIT READY ok\n");
+            return 1;
+        }
+        dbg_delay_ms(5);
+    }
+    {
+        uint8_t sense[18];
+        for (uint32_t i = 0; i < 18; i++) sense[i] = 0;
+        if (ufs_request_sense(lun, sense)) {
+            dbg_puts("UFS REQUEST SENSE: key "); dbg_hex(sense[2] & 0x0fu, 1);
+            dbg_puts(" asc "); dbg_hex(sense[12], 2);
+            dbg_puts(" ascq "); dbg_hex(sense[13], 2); dbg_puts("\n");
+        }
+    }
+    return ufs_fail("TEST UNIT READY", 0);
+}
+
+static int ufs_request_sense(uint32_t lun, uint8_t sense[18])
+{
+    return ufs_scsi_simple(lun, 0x03, sense, 18, 0);
 }
 
 /* All GPT/system/payload reads use LUN 2 (the main UFS LUN). */
