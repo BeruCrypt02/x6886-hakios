@@ -1,6 +1,6 @@
 # HakiOS · Infinix X6886
 
-[Device](devices/x6886/README.md) · [Docs](docs/index.md) · [Bring-up](docs/plan/bringup.md) · [Status](docs/plan/status.md) · [Drivers](docs/driver-review/driver-matrix.md) · [Contributing](CONTRIBUTING.md)
+[Device](devices/x6886/README.md) · [Docs](docs/index.md) · [Bring-up](docs/plan/bringup.md) · [Status](docs/plan/status.md) · [Drivers](docs/driver-review/driver-matrix.md) · [Contributing](CONTRIBUTING.md) · [Contributors](CONTRIBUTORS.md)
 
 HakiOS runs Apple's open-source XNU kernel with a Darwin user space on the
 Infinix Hot 60 Pro+ (X6886). This repository holds the device package: board
@@ -91,7 +91,7 @@ Board facts: [devices/x6886/README.md](devices/x6886/README.md). SoC facts:
 
 ## Contributing and licences
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Imported XNU and HakiOS material keeps
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CONTRIBUTORS.md](CONTRIBUTORS.md). Imported XNU and HakiOS material keeps
 its upstream licence; this repository's notes and scripts are provided for
 bring-up research. See [NOTICE.md](NOTICE.md), [LICENSES/MIT.txt](LICENSES/MIT.txt),
 and [LICENSES/APSL-2.0.txt](LICENSES/APSL-2.0.txt).
