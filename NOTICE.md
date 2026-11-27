@@ -3,9 +3,9 @@
 ## Licences
 
 - `xnuloader/`, `drivers/`, and any file derived from Apple's XNU are under the
-  **Apple Public Source License 2.0** (`LICENSE`, copy in `LICENSES/APSL-2.0.txt`).
+  **Apple Public Source License 2.0** (`LICENSE.APSL`).
 - Everything written for this repository is under the **MIT licence**
-  (`LICENSES/MIT.txt`), unless a file's header says
+  (`LICENSE.MIT`), unless a file's header says
   otherwise.
 - Drivers cite the Linux sources a register layout was read from. Those
   sources were read, not copied.
