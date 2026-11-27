@@ -1,8 +1,8 @@
 # X6886 Bluetooth port manifest — transport only, backend reported MISSING
 
 Branch `feat/x6886-real-port`, 100% offline: no adb, no fastboot, no build, no flash.
-Written: `kernel/x6886/hakios.x6886_bt.c`, this manifest, and four raw firmware blobs in
-`kernel/x6886/firmware/`. No `.so`, `.ko` or config file was copied. No iscle source was read.
+Written: `drivers/bluetooth/hakios.x6886_bt.c`, this manifest, and four raw firmware blobs in
+`devices/x6886/prebuilt/firmware/`. No `.so`, `.ko` or config file was copied. No iscle source was read.
 
 ## What the allowed sources actually contain
 - `refs/oosexgang-xnu-kernel-mtk-helio/kernel/overlay/bsd/dev/mtk_btsk.c` (325 lines) is a **real**
@@ -14,7 +14,7 @@ Written: `kernel/x6886/hakios.x6886_bt.c`, this manifest, and four raw firmware 
   it to run on yet" (`:20`). It needs `power_on`, `function_on`, `send`, `receive` from the phone.
 - Those four ops exist only in `mtk_connsys.c` (`:701,802,827,1931-1956`) — **outside the allowed
   source list** and blocked on the same unverified MT6366 VCN supplies as the Wi-Fi port
-  (`PORT-WIFI.md` section 5). There is therefore **no complete real MTK Bluetooth driver** in the
+  (`wifi-driver.md` section 5). There is therefore **no complete real MTK Bluetooth driver** in the
   permitted osexgang sources. No fake `mtk_connsys_bt_send` / power-on / WMT stub was written:
   the symbol is left `extern` at `hakios.x6886_bt.c:29`.
 
@@ -33,7 +33,7 @@ Written: `kernel/x6886/hakios.x6886_bt.c`, this manifest, and four raw firmware 
 - All diagnostics go to printf and pstore `0x480af000` via `X6886_LOG` (`[X6886-bt]`).
 
 ## Raw firmware copied (data only)
-Source: `/home/berucrypt00/otadump/vendor/firmware/` -> `kernel/x6886/firmware/`.
+Source: `/home/berucrypt00/otadump/vendor/firmware/` -> `devices/x6886/prebuilt/firmware/`.
 | Blob | Bytes | SHA256 |
 |---|---:|---|
 | `soc2_2_ram_bt_1d_blr_1_hdr.bin` | 691052 | `dd47dd827739c6b281808ec3610ae57599aa539a39ef56a97e12f32569882aea` |

@@ -1,7 +1,7 @@
 # X6886 MT6366 gauge monitor port manifest
 
 Branch `feat/x6886-real-port`, 100% offline: no adb, no fastboot, no build, no flash.
-Only `kernel/x6886/hakios.x6886_battery.c` and this manifest were written.
+Only `drivers/power/hakios.x6886_battery.c` and this manifest were written.
 
 ## Source
 Real MTK logic: `refs/oosexgang-xnu-kernel-mtk-helio/kernel/overlay/bsd/dev/mtk_battery.c`
@@ -13,7 +13,7 @@ request write (`:145`). This driver only reads; it never writes a charging or ga
 ## Constants (file:line)
 | Constant | Value | Proof |
 |---|---|---|
-| pwrap | `0x10026000`, size `0x1000` | `device-dump/fdt.dts:3219-3220` |
+| pwrap | `0x10026000`, size `0x1000` | `devices/x6886/evidence/fdt.dts:3219-3220` |
 | gauge node | `mediatek,mt6358-gauge` under `mt6366` | `fdt.dts:3868-3870` |
 | r-fg-value | `0x32` = **50 mOhm** | `fdt.dts:3883` |
 | fg-meter-resistance | `0x64` | `fdt.dts:3887` |

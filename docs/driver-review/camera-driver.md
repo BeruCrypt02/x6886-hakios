@@ -1,7 +1,7 @@
 # X6886 camera infrastructure port manifest (inspect-only)
 
 Branch `feat/x6886-real-port`, 100% offline: no adb, no fastboot, no build, no flash.
-Only `kernel/x6886/hakios.x6886_camera.c` and this manifest were written.
+Only `drivers/camera/hakios.x6886_camera.c` and this manifest were written.
 
 ## Source and an explicit missing-source finding
 Real MTK logic: `refs/oosexgang-xnu-kernel-mtk-helio/kernel/overlay/bsd/dev/mtk_camera.c`
@@ -17,7 +17,7 @@ validates the hardware and reports sensor identity; it does not stream, capture 
 ## Constants (file:line)
 | Constant | Value | Proof |
 |---|---|---|
-| camsys | `0x1a000000` | `device-dump/fdt.dts:1841` |
+| camsys | `0x1a000000` | `devices/x6886/evidence/fdt.dts:1841` |
 | seninf1..6 | `0x1a004000`..`0x1a009000` | `fdt.dts:3165-3193` |
 | seninf_top | `0x1a004000` | `fdt.dts:3195-3196` |
 | camsv2..7 legacy | `0x1a092000`..`0x1a097000` | `fdt.dts:7087-7136` |

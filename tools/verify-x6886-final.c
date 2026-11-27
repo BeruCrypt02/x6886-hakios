@@ -7,7 +7,7 @@
 
 #define IMAGE "/home/berucrypt00/x6886-hakios/build/boot-HakiOS-X6886.img"
 #define LOADER "/home/berucrypt00/x6886-hakios/devices/x6886/prebuilt/mtkloader.bin"
-#define LOADER_ELF "/tmp/opencode/elf-final2/mtkloader.elf"
+#define LOADER_ELF "/tmp/hakios-x6886/elf-final2/mtkloader.elf"
 #define PAGE 4096u
 #define IMAGE_SIZE (64u * 1024u * 1024u)
 #define CHAIN_OFFSET 0x80000u

@@ -9,11 +9,11 @@ path**, not a claim that the path has been executed on X6886.
 
 | Tag | Meaning |
 | :-- | :-- |
-| FDT | `device-dump/fdt.dts` — live device tree from this X6886, overlays applied. Line numbers are from that file. |
-| PROC | `device-dump/interrupts.txt`, `iomem.txt`, `modules.txt`, `dmesg.txt` — live /proc captures from this X6886. |
+| FDT | `devices/x6886/evidence/fdt.dts` — live device tree from this X6886, overlays applied. Line numbers are from that file. |
+| PROC | `devices/x6886/evidence/interrupts.txt`, `iomem.txt`, `modules.txt`, `dmesg.txt` — live /proc captures from this X6886. |
 | DUMP | `/home/berucrypt00/otadump` — `all_files.txt`, `kernel_config.txt`, `mtk/installed-files-vendor.txt`, partition trees. |
 | REF | `refs/heliodarwin/wiki/MT6789-GPU-Power-Sequence.md` and patches 0147/0178/0182, measured on the **X676C**, a different phone. Also `refs/oosexgang-xnu27` (MT6768 X6826B). Unverified on X6886. |
-| TREE | `kernel/x6886/hakios.x6886_mali.c` and `kernel/x6886/PORT-GPU.md` — local design/implementation state. Describes intent, not hardware proof. |
+| TREE | `drivers/gpu/hakios.x6886_mali.c` and `drivers/gpu-driver.md` — local design/implementation state. Describes intent, not hardware proof. |
 
 Rules used throughout:
 
@@ -219,17 +219,17 @@ are X676C values (REF `wiki:19`). X6886 has never had `GPU_ID` read; do not copy
 them. JM/MMU register offsets (`GPU_ID 0x0`, `AS_PRESENT 0x18`,
 `JS_PRESENT 0x1c`, job slots `0x1800 + n*0x80`, address spaces `0x2400 + n*0x40`)
 and the in-tree clock/power writes at topckgen `0x58/0x04/0x50`, mfgcfg `0x8/0x0/
-0x20/0xb0/0xb4/0x24/0xf60` are likewise REF (TREE `PORT-GPU.md` section 2b).
+0x20/0xb0/0xb4/0x24/0xf60` are likewise REF (TREE `gpu-driver.md` section 2b).
 
 ## 3. Current X6886 state (TREE, not device proof)
 
-`kernel/x6886/hakios.x6886_mali.c` gates every write to a DTB-unproven power or
+`drivers/gpu/hakios.x6886_mali.c` gates every write to a DTB-unproven power or
 clock register behind boot arg `mali_hwctl`, which defaults to **0**. With 0 the
 driver performs a read-only survey and returns `ENXIO` if firmware has not already
 left the domains/gates on; it does not write an unproven gate. Bring-up is ordered
 topckgen status → MFG domain status → mfgcfg gate status → `GPU_ID`, and stops on
 the first failed read. **Rails are not written at all today**: VGPU and VSRAM_GPU
-are left exactly as firmware set them (TREE `PORT-GPU.md` gaps 2 and 7). DVFS is
+are left exactly as firmware set them (TREE `gpu-driver.md` gaps 2 and 7). DVFS is
 not implemented; the 45 OPPs are validated and reported only. `x6886_mali_init()`
 is itself a no-op unless `mali=1`. The safe sequence below is therefore a target
 specification, not a description of code already running on X6886.

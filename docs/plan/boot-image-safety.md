@@ -22,7 +22,7 @@ Verdict can only change to "conditional" after a **read-only** device check prov
 Command used:
 
 ```sh
-python3 /tmp/opencode/parse_boot.py
+python3 /tmp/hakios-x6886/parse_boot.py
 # reads d[:8], u32 @8/12/16/20/24/28/32/36/40/44, name @48, cmdline @64,
 # id/SHA1 @576, extra @608, extra region @1632..1680
 ```
@@ -75,9 +75,9 @@ Other v4-region words 1636/1640/1644/1656/1660/1664/1672/1676/1680 are all zero 
 Command used:
 
 ```sh
-python3 /tmp/opencode/parse_kernel.py
-python3 /tmp/opencode/parse_more.py
-python3 /tmp/opencode/parse_xnup.py
+python3 /tmp/hakios-x6886/parse_kernel.py
+python3 /tmp/hakios-x6886/parse_more.py
+python3 /tmp/hakios-x6886/parse_xnup.py
 ```
 
 Exact key outputs:
@@ -177,7 +177,7 @@ cat refs/oosexgang-xnu27/loader/build.sh
 Command used:
 
 ```sh
-python3 /tmp/opencode/parse_vendor2.py
+python3 /tmp/hakios-x6886/parse_vendor2.py
 ```
 
 Verified:
@@ -311,12 +311,12 @@ Until all five are done: **do not flash.**
 ## Commands appendix (exact, read-only)
 
 ```sh
-python3 /tmp/opencode/parse_boot.py                 # header fields of both images
-python3 /tmp/opencode/parse_kernel.py               # gzip decompress, loader/res fields, XNUP scan, SHA1
-python3 /tmp/opencode/parse_more.py                 # stock lz4 decompress, loader diff, XNUP hexdump
-python3 /tmp/opencode/parse_xnup.py                 # XNUP entry walk
-python3 /tmp/opencode/parse_vendor2.py              # vendor_boot header, vbmeta hexdump
-python3 /tmp/opencode/parse_avb.py                  # vbmeta field decode
+python3 /tmp/hakios-x6886/parse_boot.py                 # header fields of both images
+python3 /tmp/hakios-x6886/parse_kernel.py               # gzip decompress, loader/res fields, XNUP scan, SHA1
+python3 /tmp/hakios-x6886/parse_more.py                 # stock lz4 decompress, loader diff, XNUP hexdump
+python3 /tmp/hakios-x6886/parse_xnup.py                 # XNUP entry walk
+python3 /tmp/hakios-x6886/parse_vendor2.py              # vendor_boot header, vbmeta hexdump
+python3 /tmp/hakios-x6886/parse_avb.py                  # vbmeta field decode
 # inline python byte scans for AVB0/AVBf in stock and our images, chain-descriptor name "boot"
 cat refs/oosexgang-xnu27/loader/chainboot.py
 diff <(cat build/chainboot-x6886.py) <(cat refs/oosexgang-xnu27/loader/chainboot.py)   # identical

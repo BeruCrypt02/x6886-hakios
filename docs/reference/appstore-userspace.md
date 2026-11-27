@@ -15,8 +15,8 @@ This answers four questions. It records what a file says, not what a screenshot 
 | Live IPA download and install from Apple | Not solved | `refs/hakios-mtk/README.md:37`, `refs/hakios-common/components/apple-id/src/inject_store.c:28-30`, `refs/akita/STATUS.md:62` | No | No local path from App Store purchase to `installd`. One USB IPA tool exists in the akita ref only. |
 | Weather and WeatherKit | App present, no data fix | `refs/akita/STATUS.md:29`, `refs/akita/STATUS.md:62`, `refs/hakios-common/Documentation/darwin26-boot.md:211`, `refs/hakios-common/Documentation/darwin26-boot.md:255` | Partly | No WeatherKit patch in any ref. Current blockers are account and service, with location as a second dependency. |
 | locationd Mescal signer patch | Portable library source, inert in this image | `refs/hakios-common/components/location/inject_locationd.c:1-24`, `refs/hakios-common/CHANGELOG.md:129-133`, `ios27/root26-darwin-tree/etc/inject.conf:12` | Yes | The patch short circuits one FairPlay wait. The current pruned image ships no `locationd` binary or job. |
-| GPS and GNSS on MT6789 | Not ported on X6886 | `docs/DRIVER-MATRIX.md:14`, `refs/oosexgang-xnu27/kernel/overlay/bsd/dev/mtk_connsys.c:1-2`, `refs/akita/drivers/gnss/hakios.akita_gnss.c:1-2` | No | The userspace signer fix does not provide positions. Other ports carry device specific GNSS drivers. |
-| Indonesian dev claim: tri LTE SIM and Metal UI | No local evidence | `docs/DRIVER-MATRIX.md:13-14`, `refs/heliodarwin/README.md:25`, `refs/heliodarwin/README.md:29`, `refs/akita/STATUS.md:17` | No | Claims live in external screenshots. Local X6886 boot stops at the XNU entry handoff. |
+| GPS and GNSS on MT6789 | Not ported on X6886 | `docs/driver-matrix.md:14`, `refs/oosexgang-xnu27/kernel/overlay/bsd/dev/mtk_connsys.c:1-2`, `refs/akita/drivers/gnss/hakios.akita_gnss.c:1-2` | No | The userspace signer fix does not provide positions. Other ports carry device specific GNSS drivers. |
+| Indonesian dev claim: tri LTE SIM and Metal UI | No local evidence | `docs/driver-matrix.md:13-14`, `refs/heliodarwin/README.md:25`, `refs/heliodarwin/README.md:29`, `refs/akita/STATUS.md:17` | No | Claims live in external screenshots. Local X6886 boot stops at the XNU entry handoff. |
 
 ## App Store
 
@@ -61,7 +61,7 @@ Sileo with Procursus provides dpkg and apt packages, not App Store installs: `re
 | Observed result | Widget text or blank widget | `refs/hakios-common/Documentation/darwin26-boot.md:118`, `refs/hakios-common/Documentation/darwin26-boot.md:211`, `refs/hakios-common/Documentation/darwin26-boot.md:255`, `refs/akita/STATUS.md:29` | Yes | On Renoir hardware the widget showed populated content and later Location Access Needed. In QEMU and on akita it stayed white or had no data. |
 | Cause recorded upstream | Signed in device and location | `refs/akita/STATUS.md:62` | Partly | Akita says Apple's weather service wants a signed in device. Precise location adds a hardware dependency. |
 
-There is no weather fix to copy into `system27-prune.apfs`. The account side is the same userspace wall as the store. A GPS backed fix would also need an MT6789 location path, which `docs/DRIVER-MATRIX.md:14` marks NOT-PORTED for X6886.
+There is no weather fix to copy into `system27-prune.apfs`. The account side is the same userspace wall as the store. A GPS backed fix would also need an MT6789 location path, which `docs/driver-matrix.md:14` marks NOT-PORTED for X6886.
 
 ## GPS and locationd
 
@@ -72,7 +72,7 @@ There is no weather fix to copy into `system27-prune.apfs`. The account side is 
 | Build wiring | Unconditional entry in image builder | `refs/hakios-common/darwin/userland/root26-darwin.sh:366-368`, `ios27/root26-darwin-tree/etc/inject.conf:12` | Yes | The built dylib is `ios27/root26-darwin-tree/lib/liblocationd-silo.dylib`. |
 | Current image effect | Inert | `refs/hakios-common/userland/userland/mkjobs.py:217`, `refs/hakios-common/darwin/tools/select-system.py:92`, `ios27/jobs26/` | No | `locationd` is in DENY, so no job plist is generated. The pruned system tree has no `usr/libexec/locationd`; the full `ios27/rootfs/usr/libexec/locationd` is 40 MB and the builder drops daemons over 10 MiB. |
 | Sensor feed to locationd | Portable, different subsystem | `refs/hakios-common/CHANGELOG.md:170-177` | Yes | Feeds orientation and accelerometer events from `hw.sensors.*` to locationd through backboardd. Not a GNSS fix and not yet seen on their phone. |
-| GNSS hardware driver | Not ported on X6886 | `docs/DRIVER-MATRIX.md:14`, `refs/oosexgang-xnu27/kernel/overlay/bsd/dev/mtk_connsys.c:1-2`, `refs/akita/drivers/gnss/hakios.akita_gnss.c:1-2` | No | MT_CONNSYS covers GPS channel 2 in the MT6768 ref. Akita uses a Samsung GNSS chip on SPI. Neither is X6886 code. |
+| GNSS hardware driver | Not ported on X6886 | `docs/driver-matrix.md:14`, `refs/oosexgang-xnu27/kernel/overlay/bsd/dev/mtk_connsys.c:1-2`, `refs/akita/drivers/gnss/hakios.akita_gnss.c:1-2` | No | MT_CONNSYS covers GPS channel 2 in the MT6768 ref. Akita uses a Samsung GNSS chip on SPI. Neither is X6886 code. |
 
 So the locationd fix is portable userspace source. It cannot produce a GPS fix by itself, and it does not run in the current pruned image because the daemon binary and its job were left out.
 
@@ -80,8 +80,8 @@ So the locationd fix is portable userspace source. It cannot produce a GPS fix b
 
 | Claim | Local evidence | Evidence file:line | Verdict |
 |---|---|---|---|
-| Tri operator LTE SIM working | None in this repo | `docs/DRIVER-MATRIX.md:14` marks cellular NOT-PORTED. `refs/heliodarwin/README.md:29` says cellular support is not established. `refs/akita/STATUS.md:58` lists mobile network as not yet. | External screenshots only. |
-| Metal UI working | Yes on other hardware, not on X6886 | `refs/akita/STATUS.md:17`, `refs/akita/STATUS.md:36`, `refs/heliodarwin/README.md:25`, `docs/DRIVER-MATRIX.md:13` | Other ports have Metal. X6886 graphics is NOT-PORTED and the local boot log ends at the kernel handoff (`phase1-hw.log:35-36`). |
+| Tri operator LTE SIM working | None in this repo | `docs/driver-matrix.md:14` marks cellular NOT-PORTED. `refs/heliodarwin/README.md:29` says cellular support is not established. `refs/akita/STATUS.md:58` lists mobile network as not yet. | External screenshots only. |
+| Metal UI working | Yes on other hardware, not on X6886 | `refs/akita/STATUS.md:17`, `refs/akita/STATUS.md:36`, `refs/heliodarwin/README.md:25`, `docs/driver-matrix.md:13` | Other ports have Metal. X6886 graphics is NOT-PORTED and the local boot log ends at the kernel handoff (`phase1-hw.log:35-36`). |
 | App Store content working | No | `refs/hakios-mtk/README.md:37`, `refs/hakios-common/userland/README.md:47` | Both refs say content and sign-in do not work. |
 
 No file in `docs/`, `plan/`, or the local refs mentions the Indonesian developer, Tri, Telkomsel, or an SIM based LTE result. Treat the claim as screenshot-only until a local run log or source file backs it.

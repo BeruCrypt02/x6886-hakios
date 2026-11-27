@@ -3,7 +3,7 @@
 Analysis date: 2026-11-23
 Sources (read-only, **dump-only** per instruction):
 - `/home/berucrypt00/otadump/...` (stock OTA dump: kernel modules, mcRegistry TAs, HALs, props, rc)
-- `/home/berucrypt00/hakios-x6886/device-dump/{dmesg.txt,getprop.txt,modules.txt,HARDWARE-IDENTITY.md}` (live-device captures)
+- `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/{dmesg.txt,getprop.txt,modules.txt,HARDWARE-IDENTITY.md}` (live-device captures)
 
 Explicitly excluded: `/home/berucrypt00/Documents/port-tools/` (per correction), reference ports, phone access, driver code. Companion prior work: `fingerprint.md` in this directory.
 
@@ -22,7 +22,7 @@ Legend: **[V]** = verified from the named dump file. **[I]** = inference/interpr
 
 ## 1. Chip / vendor identity — VERIFIED
 
-**[V] Live module state** — `/home/berucrypt00/hakios-x6886/device-dump/modules.txt`:
+**[V] Live module state** — `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/modules.txt`:
 ```
 tran_fp      102400  2  - Live ... (OE)          <-- refcount 2 = in use
 tran_fp_v2    57344  0  - Live ... (OE)          <-- refcount 0 = loaded, unbound
@@ -241,7 +241,7 @@ odm/etc/vintf/manifest/fingerprint-default.xml ; odm/etc/permissions/android.har
 
 ## 6. Live kernel log — VERIFIED (negative result)
 
-`device-dump/dmesg.txt` is 28,854 lines but is a **rolling tail starting at `[31277.110124]` (~8.7 h uptime)**, not a boot log. Case-insensitive counts:
+`devices/x6886/evidence/dmesg.txt` is 28,854 lines but is a **rolling tail starting at `[31277.110124]` (~8.7 h uptime)**, not a boot log. Case-insensitive counts:
 ```
 spi: 0   SPI: 0   fp: 0   FP: 0   finger: 0   goodix: 0   fp_spi: 0   mcDrv: 0   tee: 0
 tran: 335  (unrelated Transsion drivers)
@@ -296,9 +296,9 @@ tran: 335  (unrelated Transsion drivers)
 /home/berucrypt00/otadump/odm/etc/init/vendor.goodix.rc
 /home/berucrypt00/otadump/product/etc/build.prop  (ro.fingerprint_support=1, wakeup opt)
 /home/berucrypt00/otadump/tr_product/etc/build.prop (ro.tr_fingerprint.optical.feature.support=1)
-/home/berucrypt00/hakios-x6886/device-dump/dmesg.txt        (rolling tail, no FP lines)
-/home/berucrypt00/hakios-x6886/device-dump/getprop.txt      (goodix SPMT PASS, fp props)
-/home/berucrypt00/hakios-x6886/device-dump/modules.txt      (tran_fp refcount 2, v2 refcount 0)
-/home/berucrypt00/hakios-x6886/device-dump/HARDWARE-IDENTITY.md (lines 75-119)
-/home/berucrypt00/hakios-x6886/device-dump/fdt.dts          (lines 4558-4591, 9188)
+/home/berucrypt00/hakios-x6886/devices/x6886/evidence/dmesg.txt        (rolling tail, no FP lines)
+/home/berucrypt00/hakios-x6886/devices/x6886/evidence/getprop.txt      (goodix SPMT PASS, fp props)
+/home/berucrypt00/hakios-x6886/devices/x6886/evidence/modules.txt      (tran_fp refcount 2, v2 refcount 0)
+/home/berucrypt00/hakios-x6886/devices/x6886/evidence/HARDWARE-IDENTITY.md (lines 75-119)
+/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts          (lines 4558-4591, 9188)
 ```

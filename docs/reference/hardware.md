@@ -1,8 +1,8 @@
 # X6886 hardware
 
 Two sources, both decompiled with `dtc`:
-- Stock dump: `vendor_boot/dtb` and `images/dtbo.img` in `/home/berucrypt00/otadump`. MediaTek wraps the FDT with a 64-byte header, so strip 64 bytes before `dtc`. Decompiled trees are in `board/x6886-base.dts` and `board/x6886-overlays.dts`.
-- Live device: `/sys/firmware/fdt` from serial `153857057T001452`, decompiled to `device-dump/fdt.dts`, plus the Device Info HW+ PDF in `device-dump/X6886-specs.txt`. The verified hardware identity is recorded in `device-dump/HARDWARE-IDENTITY.md`.
+- Stock dump: `vendor_boot/dtb` and `images/dtbo.img` in `/home/berucrypt00/otadump`. MediaTek wraps the FDT with a 64-byte header, so strip 64 bytes before `dtc`. Decompiled trees are in `devices/x6886/prebuilt/device-tree.dts` and `devices/x6886/prebuilt/overlays.dts`.
+- Live device: `/sys/firmware/fdt` from serial `153857057T001452`, decompiled to `devices/x6886/evidence/fdt.dts`, plus the Device Info HW+ PDF in `devices/x6886/evidence/X6886-specs.txt`. The verified hardware identity is recorded in `devices/x6886/evidence/HARDWARE-IDENTITY.md`.
 
 Where the two disagree, the live FDT wins because it has the overlays applied.
 

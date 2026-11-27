@@ -1,7 +1,7 @@
 # X6886 MT6789 audio port manifest
 
 Branch `feat/x6886-real-port`, 100% offline: no adb, no fastboot, no kernel build, no flash.
-Only `kernel/x6886/hakios.x6886_audio.c` and this manifest were written.
+Only `drivers/audio/hakios.x6886_audio.c` and this manifest were written.
 No Android `.so`/`.ko` is loaded, no modem/NVRAM/IMEI write, no iscle (banned, Qualcomm).
 
 ## Sources
@@ -9,15 +9,15 @@ No Android `.so`/`.ko` is loaded, no modem/NVRAM/IMEI write, no iscle (banned, Q
 - Genuine MediaTek MT6789 code in `refs/alps-device-modules-6.12/sound/soc/mediatek/mt6789/`:
   `mt6789-reg.h` (register/bit map), `mt6789-afe-pcm.c` (AFE, DMA/WPDMA, IRQ, power),
   `mt6789-afe-clk.c` (clock enables), `mt6789-mt6366.c` (machine driver/controls).
-- Device truth: `device-dump/iomem.txt`, `device-dump/interrupts.txt`, `device-dump/fdt.dts`,
-  `device-dump/modules.txt`.
+- Device truth: `devices/x6886/evidence/iomem.txt`, `devices/x6886/evidence/interrupts.txt`, `devices/x6886/evidence/fdt.dts`,
+  `devices/x6886/evidence/modules.txt`.
 - Stock audio routing: `otadump/vendor/etc/audio_device.xml` (this handset's kctl map).
 
 ## Device constants (file:line proof)
 
 | Constant | Value | Proof |
 |---|---|---|
-| AFE MMIO base / size | `0x11210000`, `0x2000` (`11210000-11211fff`) | `device-dump/iomem.txt:105`; `fdt.dts:5582-5584` (`reg = <0 0x11210000 0 0x2000>`) |
+| AFE MMIO base / size | `0x11210000`, `0x2000` (`11210000-11211fff`) | `devices/x6886/evidence/iomem.txt:105`; `fdt.dts:5582-5584` (`reg = <0 0x11210000 0 0x2000>`) |
 | AFE DT SPI IRQ | `0xea` = **234** | `fdt.dts:5585` (`interrupts = <0x00 0xea 0x04 0x00>`) |
 | AFE Linux IRQ (GICv3) | **266** = 234 + 32 SPI offset | `interrupts.txt:147` (`GICv3 266 Level Afe_ISR_Handle`) |
 | AFE is its own clock controller (phandle `0x3a`) | `0x11210000`, `0x1000` | `fdt.dts:1776-1780`; used at `fdt.dts:5590-5591` |

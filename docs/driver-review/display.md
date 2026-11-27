@@ -7,11 +7,11 @@ change that still needs separate approval; none of its gates has been executed.
 
 Authority order when sources disagree:
 
-1. **DTB** — live `/home/berucrypt00/x6886-hakios/device-dump/fdt.dts` (overlays applied)
-   and `/proc/iomem` in `device-dump/iomem.txt`.
+1. **DTB** — live `/home/berucrypt00/x6886-hakios/devices/x6886/evidence/fdt.dts` (overlays applied)
+   and `/proc/iomem` in `devices/x6886/evidence/iomem.txt`.
 2. **HANDOFF** — `docs/HANDOFF-IOS27-BOOT.md` (three independent offline audits).
 3. **LOADER** — `build/loader/mtkdbg.h`, `build/loader/mtkloader.c`, `devices/x6886/board.toml`.
-4. **PROC** — other `device-dump/*` captures.
+4. **PROC** — other `devices/x6886/evidence/*` captures.
 5. **DERIVED** — arithmetic from the above (explicitly labelled).
 6. **REF** — `refs/` material from *other phones*. REF numbers never become active
    X6886 values without an on-device read.
@@ -23,7 +23,7 @@ The stock dump at `/home/berucrypt00/otadump` was read-only and is not modified.
 ## 1. Verified address map
 
 All bases below are DTB-proven unless marked otherwise. "FDT n" = line number in
-`device-dump/fdt.dts`; "IOM n" = line in `device-dump/iomem.txt`. Every MMIO region
+`devices/x6886/evidence/fdt.dts`; "IOM n" = line in `devices/x6886/evidence/iomem.txt`. Every MMIO region
 is 0x1000 bytes unless stated.
 
 | Item | Address / value | DTB proof | iomem proof | Note |
@@ -31,7 +31,7 @@ is 0x1000 bytes unless stated.
 | LK framebuffer base | `0xFE0C0000` | FDT 93–94 (`atag,videolfb-fb_base_l/h`) | IOM 203 (`fe0c0000-fffeffff : reserved`) | ATAG/HANDOFF 28, not a DT `reg`. |
 | LK framebuffer size | `0x01DF0000` | FDT 98 (`atag,videolfb-vramSize`) | inside IOM 203 | 3 × 1088 × 2400 × 4 = `0x1DE2000`, ALIGN 64K = `0x1DF0000` **[DERIVED]**. |
 | Framebuffer pitch | `4352` (`0x1100`) | FDT 93–98 imply 1088 px × 4 | — | HANDOFF 30; 1080 rounded to 32 px. Not a DT property. |
-| Panel / logical size | `1080 × 2400`, 32 bpp | FDT 69, 6539 (panel name) | — | HANDOFF 13; `device-dump/X6886-specs.txt:101-113`. |
+| Panel / logical size | `1080 × 2400`, 32 bpp | FDT 69, 6539 (panel name) | — | HANDOFF 13; `devices/x6886/evidence/X6886-specs.txt:101-113`. |
 | DISP_OVL0 | `0x14005000` | FDT 53 (alias `ovl0`), 6374–6376 (`reg`) | — | HANDOFF 31. |
 | DISP_OVL0_2L | `0x14006000` | FDT 54 (alias `ovl3`), 6387–6389 | — | HANDOFF 32; may be the active composer. |
 | DISP_RDMA0 | `0x14007000` | FDT 55, 6400–6402 | — | downstream of OVL. |
@@ -43,7 +43,7 @@ is 0x1000 bytes unless stated.
 | DISPSYS_CONFIG / MMSYS | `0x14000000` | FDT 9264 (alias), 6324–6326; 1811–1815 | IOM 118 | two nodes, same base: DRM config + clock syscon. |
 | DISP_IOMMU | `0x14016000` | FDT ~6646–6656 (`iommu@14016000`, phandle `0xa3`) | IOM 124 | banks at `0x14017000`–`0x1401a000` (FDT 6611–6645). |
 | DISP_PWM0 (backlight PWM) | `0x1100E000` | FDT 9263 (alias), 6314–6316 | IOM 95 |irq SPI 0xcb=203. |
-| Backlight LED device | no `reg` | FDT 2320–2330 (`mediatek,disp-leds`, label `lcd-backlight`, max `0x13ff`, led-mode `4`, `pwm_config=<0 1 0 0 0>`) | — | `/sys/class/backlight` is **empty** (PROC `device-dump/display.txt:1-3`); DRM card0 is at `14000000.dispsys_config` (display.txt:6). Do not assume a standard sysfs brightness node. |
+| Backlight LED device | no `reg` | FDT 2320–2330 (`mediatek,disp-leds`, label `lcd-backlight`, max `0x13ff`, led-mode `4`, `pwm_config=<0 1 0 0 0>`) | — | `/sys/class/backlight` is **empty** (PROC `devices/x6886/evidence/display.txt:1-3`); DRM card0 is at `14000000.dispsys_config` (display.txt:6). Do not assume a standard sysfs brightness node. |
 | Top clock generator (topckgen) | `0x10000000` | FDT 1582–1586 (phandle `0x2b`) | IOM 23 | |
 | Infracfg AO | `0x10001000` | FDT 1589–1593 (phandle `0x2c`) | IOM 24 | reset-controller at FDT 1595–1600. |
 | APMIXEDSYS (PLLs) | `0x1000C000` | FDT 1639–1643 (phandle `0x3c`) | IOM 28 | |
@@ -130,7 +130,7 @@ These are handoff *state*, not things to reproduce:
   (`mtkloader.c:2764-2765`, 4081-4087).
 - Backlight is on at an LK-chosen level. The DTB defines the LED device and PWM base
   (FDT 2320–2330, 6314–6320) but **no XNU kernel backlight driver exists**
-  (HANDOFF 93; `docs/DRIVER-MATRIX.md:10`). Userland `libhakios-backlight.dylib` /
+  (HANDOFF 93; `docs/driver-matrix.md:10`). Userland `libhakios-backlight.dylib` /
   `libhakios-brightness.dylib` exist in the iOS tree but do not constitute a kernel
   DSI/backlight driver.
 - LK also leaves the TOPRGU watchdog configured; reference designs keep servicing it

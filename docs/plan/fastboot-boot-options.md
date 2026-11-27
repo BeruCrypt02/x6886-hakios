@@ -2,7 +2,7 @@
 
 Read-only investigation. No device contact. No writes to `otadump`, `device-dump`, or any
 port-tools path. The only files created are analysis scripts and a staged Python package under
-`/tmp/opencode/`, plus this report.
+`/tmp/hakios-x6886/`, plus this report.
 
 Route: `aosp-root-router` → `aosp-bootloader-lk`.
 

@@ -34,7 +34,7 @@ reference only — no driver is written here.
 | **XNU-HC** | `/home/berucrypt00/hakios-x6886/refs/xnu-12377-hakios/bsd/dev/board/ufshc.c` (+ `ufshc.h`) | Concrete C implementation: raw UTRD dwords, READ(10) UPIU bytes, PRDT, doorbell polling, completion checks, leave-LK-state-alone policy, list handoff sequence |
 | **XNU-UFS** | `.../bsd/dev/board/ufs.c` | GPT on UFS uses 4096-byte logical blocks; GPT header is LBA 1, `"EFI PART"` |
 | **MSDC** | `/home/berucrypt00/x6886-hakios/refs/oosexgang-xnu27/loader/msdc.h` | House style to mirror: static base, `rd32`/`wr32`, bounded polls, `last error` struct, 32-bit accesses only, no SIMD |
-| **DT** | `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts` lines 5660-5674 (also `board/x6886-base.dts`) | Base/size, compatible, resets, clocks, `bootmode = 0x46`, `mediatek,ufs-disable-mcq` |
+| **DT** | `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts` lines 5660-5674 (also `devices/x6886/prebuilt/device-tree.dts`) | Base/size, compatible, resets, clocks, `bootmode = 0x46`, `mediatek,ufs-disable-mcq` |
 | **PRIOR** | `/home/berucrypt00/hakios-x6886/plan/ufs-uboot-analysis.md` | LK owns UFS before us; preloader/LK bring-up evidence |
 
 Anything not covered by these tags is marked **INFERENCE**.

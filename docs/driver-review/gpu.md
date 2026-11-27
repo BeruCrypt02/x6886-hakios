@@ -5,11 +5,11 @@ document. Every number below comes from a local file. Each claim carries a sourc
 
 | Tag | Source |
 | :-- | :-- |
-| FDT | `device-dump/fdt.dts` (live device tree, overlays applied) |
-| PROC | `device-dump/interrupts.txt`, `iomem.txt`, `bus.txt`, `modules.txt`, `dmesg.txt`, `getprop.txt` |
+| FDT | `devices/x6886/evidence/fdt.dts` (live device tree, overlays applied) |
+| PROC | `devices/x6886/evidence/interrupts.txt`, `iomem.txt`, `bus.txt`, `modules.txt`, `dmesg.txt`, `getprop.txt` |
 | DUMP | `/home/berucrypt00/otadump` (`all_files.txt`, `kernel_config.txt`, `mtk/installed-files-vendor.txt`) |
 | REF | `refs/` repositories listed in the reference table |
-| SPEC | `device-dump/X6886-specs.txt` |
+| SPEC | `devices/x6886/evidence/X6886-specs.txt` |
 
 REF evidence comes from other phones. It guides implementation order. It does not prove
 that X6886 behaves the same way.

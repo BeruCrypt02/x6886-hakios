@@ -1,7 +1,7 @@
 # Gap: FT3682g vs FT3683G touch IC — resolution
 
 Scope: **dump-only sources**. Stock dump `/home/berucrypt00/otadump` plus live-device data
-already pulled into `/home/berucrypt00/hakios-x6886/device-dump/`. No phone access, no writes
+already pulled into `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/`. No phone access, no writes
 to the dump. `Documents/port-tools` and the reference-port trees were excluded per instruction.
 
 ---
@@ -67,7 +67,7 @@ Mali/camera/audio/Clang `.so` string tables, unrelated to touch.)
 
 ### 1.2 Live-device `modules.txt` proves the FT3683G driver is actually loaded
 
-`/home/berucrypt00/hakios-x6886/device-dump/modules.txt` (pulled from the phone, 2026-11-23):
+`/home/berucrypt00/hakios-x6886/devices/x6886/evidence/modules.txt` (pulled from the phone, 2026-11-23):
 
 ```
 69: chipsemi_chsc5xxx_old 245760 0 - Live ... (OE)
@@ -94,11 +94,11 @@ insmod oneshot ran: `[ro.boottime.insmod_touch_sh]: [4224343615]`,
 | Controller string | `ft3683g_controller`, `ft3683g` | `0x822ab`, `0x34bf2` |
 | Version | `FocalTech V4.1 20230424` | `0x35859` |
 | Factory config | `IC_Type=FT3683G` | `odm/firmware/Conf_MultipleTest.ini:23` |
-| Live loaded module | `focaltech_ft3683g ... Live` | `device-dump/modules.txt:70` |
+| Live loaded module | `focaltech_ft3683g ... Live` | `devices/x6886/evidence/modules.txt:70` |
 
 The **only** two `3682g` occurrences anywhere:
 
-1. Live FDT supplier string (`device-dump/fdt.dts`, `touch` node):
+1. Live FDT supplier string (`devices/x6886/evidence/fdt.dts`, `touch` node):
    `supplier-0 = "nt37706a_fhdp_dsi_vdo_dsc_boe_boe_144hz_x6886, focaltech, ft3682g";`
    — this is a panel+TP procurement label in the display config, concatenated with the FW name
    `supplier-vendor-fwname-0 = "focaltech_ts_fw.bin"`.
@@ -111,13 +111,13 @@ finds only `focaltech_ft3683g.ko` and no `ft3682` file at all.
 
 ### 1.4 Live dmesg cannot contradict this (but does not help)
 
-`device-dump/dmesg.txt` covers uptime `31277.1s → 31436.4s` (~2.5 minutes of a late rolling
+`devices/x6886/evidence/dmesg.txt` covers uptime `31277.1s → 31436.4s` (~2.5 minutes of a late rolling
 buffer, ~8.7 h after boot). Counts: `DISP`=160, `STP-PSM`=52, **`FTS_TS`=0, `fts`=0, `tpd`=0**.
 The 52 `TP` hits are all `[STP-PSM]` (MediaTek connectivity), not touch panel. All FTS
 `chip id` / `boot id` / probe lines were boot-time and are long gone from this capture. This is
 why the live read previously looked necessary — it is a buffer-window problem, not missing evidence.
 
-`device-dump/input.txt` shows `/sys/class/input/event4/device/name: mtk-tpd`. Note: `mtk-tpd`
+`devices/x6886/evidence/input.txt` shows `/sys/class/input/event4/device/name: mtk-tpd`. Note: `mtk-tpd`
 appears in **both** `focaltech_ft3683g.ko` (`fts_ts_id`) and `chipsemi_chsc5xxx_old.ko`, so this
 alone is **not** decisive; it only confirms a Transsion THP touch input is registered.
 

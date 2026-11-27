@@ -2,7 +2,7 @@
 
 **Analysis date:** 2026-11-23
 **Mode:** READ-ONLY on `/home/berucrypt00/otadump`. No phone access, no writes to the dump, no driver code written.
-**Sources used (only):** `/home/berucrypt00/otadump`, `/home/berucrypt00/hakios-x6886/device-dump/{dmesg.txt,modules.txt,getprop.txt}`.
+**Sources used (only):** `/home/berucrypt00/otadump`, `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/{dmesg.txt,modules.txt,getprop.txt}`.
 **Tools:** `find`, `grep`, `strings -a -t x`, `xxd`, `dd`, `readelf -S`, `file`, `python3` (byte/struct inspection).
 
 ---
@@ -108,7 +108,7 @@ This is a vendor policy rule with `same_process_hal_file`, i.e. these are real f
 | `grep -ral 'mali_csffw.bin'` over `vendor/ vendor_dlkm/ odm/ odm_dlkm/ system/ system_ext/ product/ vendor_boot/` | only the **3** `vendor_file_contexts` copies; no firmware file |
 | `grep -ral 'valhall-1691526.wa'` over the same dirs | the **3** `vendor_file_contexts` copies **+** `vendor_dlkm/lib/modules/mali_kbase_mt6789_a16w_jm.ko`; no firmware file |
 
-Captured live data cross-check: `/home/berucrypt00/hakios-x6886/device-dump/modules.txt` confirms the module is loaded on the device (`mali_kbase_mt6789_a16w_jm 991232 74 - Live ... (OE)`), but `dmesg.txt` is a **late tail starting at `31277.110124`** with **zero** `mali`/`gpu` lines, so it contains no boot-time `request_firmware` failure line. `getprop.txt` only has generic GPU props (`[ro.hardware.vulkan]: [mali]`, etc.).
+Captured live data cross-check: `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/modules.txt` confirms the module is loaded on the device (`mali_kbase_mt6789_a16w_jm 991232 74 - Live ... (OE)`), but `dmesg.txt` is a **late tail starting at `31277.110124`** with **zero** `mali`/`gpu` lines, so it contains no boot-time `request_firmware` failure line. `getprop.txt` only has generic GPU props (`[ro.hardware.vulkan]: [mali]`, etc.).
 
 ---
 
@@ -189,4 +189,4 @@ adb shell 'strace -f -e trace=openat -s 128 -p $(pidof <gpu-process>) 2>&1 | gre
 
 ## 7. Update to the existing analysis
 
-`/home/berucrypt00/hakios-x6886/dump-analysis/firmware.md` §2 and `FINDINGS.md` ("GPU: no firmware blob in dump") remain **correct about the blob's absence**, but the earlier inference that the name needed live confirmation is now superseded: the two names are `mali_csffw.bin` and `valhall-1691526.wa`, both recorded in the dump's own SELinux policy and (for the `.wa`) in the driver binary.
+`/home/berucrypt00/hakios-x6886/docs/reference/dump-analysis/firmware.md` §2 and `FINDINGS.md` ("GPU: no firmware blob in dump") remain **correct about the blob's absence**, but the earlier inference that the name needed live confirmation is now superseded: the two names are `mali_csffw.bin` and `valhall-1691526.wa`, both recorded in the dump's own SELinux policy and (for the `.wa`) in the driver binary.

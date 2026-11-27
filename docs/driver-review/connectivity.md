@@ -31,17 +31,17 @@ Read-only surveys, bounded polls, MMIO reads, and firmware-file inventory are al
 
 | Source | What it gave |
 |---|---|
-| `device-dump/fdt.dts` (live FDT, overlays applied) | All bases, IRQ SPI values, pinctrl states, supplies, reserved memory |
-| `device-dump/interrupts.txt`, `iomem.txt`, `modules.txt`, `dmesg.txt` | IRQ names/GIC numbers, MMIO labels, loaded modules, live Wi-Fi behaviour |
-| `board/x6886-base.dts`, `board/x6886-overlays.dts` | Stock dump DT cross-check |
+| `devices/x6886/evidence/fdt.dts` (live FDT, overlays applied) | All bases, IRQ SPI values, pinctrl states, supplies, reserved memory |
+| `devices/x6886/evidence/interrupts.txt`, `iomem.txt`, `modules.txt`, `dmesg.txt` | IRQ names/GIC numbers, MMIO labels, loaded modules, live Wi-Fi behaviour |
+| `devices/x6886/prebuilt/device-tree.dts`, `devices/x6886/prebuilt/overlays.dts` | Stock dump DT cross-check |
 | `/home/berucrypt00/otadump/all_files.txt`, `vendor/firmware/`, `odm/firmware/`, `images/`, `system_dlkm/`, `vendor_dlkm/` | Exact firmware blob names/sizes, modules, `modules.load` order |
 | `/home/berucrypt00/otadump/vendor/etc/init/hw/init_connectivity.rc`, `vendor/etc/init/` | Stock WMT/conmodem boot order and property gates |
-| `dump-analysis/firmware.md`, `dump-analysis/kernel-modules.md` | Prior offline firmware/module inventory |
+| `docs/reference/dump-analysis/firmware.md`, `docs/reference/dump-analysis/kernel-modules.md` | Prior offline firmware/module inventory |
 | `refs/alps-device-modules-6.12/arch/arm64/boot/dts/mediatek/mt6789.dts` | Source-side CONNSYS/Wi-Fi/GPS/mddriver nodes and register-window names |
 | `refs/alps-device-modules-6.12/drivers/misc/mediatek/eccci/` | The only alps C source for modem power-on present in this tree |
 | `refs/oosexgang-xnu-kernel-mtk-helio/kernel/overlay/bsd/dev/mtk_{connsys,wifi,btsk}.c` | Non-alps CONNSYS reference; NOT usable for MT6366 power-on |
-| `kernel/x6886/hakios.x6886_{wifi,bt,cell}.c` and `PORT-{WIFI,BT,CELL}.md` | Current XNU stub behaviour |
-| `docs/DRIVER-MATRIX.md:14`, `docs/HARDWARE.md` | Existing survey status |
+| `drivers/hakios.x6886_{wifi,bt,cell}.c` and `PORT-{WIFI,BT,CELL}.md` | Current XNU stub behaviour |
+| `docs/driver-matrix.md:14`, `docs/reference/hardware.md` | Existing survey status |
 
 Important scope limit: `refs/alps-device-modules-6.12` is a **partial** snapshot. It contains
 MT6789 DTS, the ECCI/CCCI modem driver, battery/charger, GPU, UFS, audio — but **no CONNSYS /
@@ -52,7 +52,7 @@ That absence is reported as a gap, never filled with invented register values.
 ## 2. Shared CONNSYS hardware map (DTB-verified)
 
 From the live FDT, `/soc/consys@18002000`, compatible `mediatek,mt6789-consys`
-(`device-dump/fdt.dts:6955-6968`; source `mt6789.dts:5357-5385` names each window):
+(`devices/x6886/evidence/fdt.dts:6955-6968`; source `mt6789.dts:5357-5385` names each window):
 
 | Window (source name) | Base / size | Evidence |
 |---|---|---|
@@ -107,7 +107,7 @@ CONNSYS EMI `0x7f000000/0x500000`, Wi-Fi DMA `0xbe000000/0x600000`; IRQs `0x199`
 `txpowerctrl.cfg` (324 B), `WMT_SOC.cfg`. `vendor/firmware/connfem.cfg` is **0 bytes**.
 Modules: `wlan_drv_gen4m_6789.ko`, `wmt_drv.ko`, `wmt_chrdev_wifi.ko`, `connadp.ko`,
 `connfem.ko`. Absent: `connsys_mt6835_mt6631.bin` / `connsys_mt6835_mt6635.bin` expected by
-`wmt_launcher` (`dump-analysis/firmware.md:299`).
+`wmt_launcher` (`docs/reference/dump-analysis/firmware.md:299`).
 
 ### 3.3 Exact alps source that documents power-on
 - `refs/alps-device-modules-6.12/arch/arm64/boot/dts/mediatek/mt6789.dts:5357-5385`
@@ -120,14 +120,14 @@ Modules: `wlan_drv_gen4m_6789.ko`, `wmt_drv.ko`, `wmt_chrdev_wifi.ko`, `connadp.
   MT6366 VCN register map exists locally. Do not port those writes.
 
 ### 3.4 What the XNU stub currently does
-`kernel/x6886/hakios.x6886_wifi.c` + `PORT-WIFI.md`: real gen4m logic adapted from
+`drivers/wifi/hakios.x6886_wifi.c` + `wifi-driver.md`: real gen4m logic adapted from
 `mtk_wifi.c`/`mtk_connsys.c`, but **survey-only by default**.
 `x6886_wifi_init()` returns immediately without `connsys_step=N` (`:750-752`); step 1
 surveys SPM/MCU read-only and **returns an error without writing anything** if CONNSYS is
 off (`:762-766`, because MT6366 VCN is unverified); step 3 takes driver own and sets up
 WPDMA rings; step 4 downloads `WIFI_RAM_CODE_*` from `fw/connsys/x6886/` and waits on
 `sw_sync0`. `connsys_chip=1d|1e` selects the blob. Four raw blobs are staged under
-`kernel/x6886/`; no build wiring, no GIC handler (events polled from rings), no
+`drivers/`; no build wiring, no GIC handler (events polled from rings), no
 scan/join/WPA layer. Diagnostics go to printf and pstore `0x480af000`.
 
 ### 3.5 Ordered steps and gate checks
@@ -142,7 +142,7 @@ scan/join/WPA layer. Diagnostics go to printf and pstore `0x480af000`.
    CONNSYS powered by the stock loader and the read-only reads are stable.
 4. **Own the radio.** Step 3: WPDMA descriptor rings in the `0xbe000000` DMA window,
    TOP_HVR/TOP_FVR readback. *Gate:* HVR/FVR match the expected gen4m values, no TX yet.
-   Owner sign-off needed for the MT6768-derived `CONN_HIF_ON_LPCTL` offsets (`PORT-WIFI.md` §7).
+   Owner sign-off needed for the MT6768-derived `CONN_HIF_ON_LPCTL` offsets (`wifi-driver.md` §7).
 5. **Download firmware.** Step 4: `WIFI_RAM_CODE_soc2_2_1d_1.bin` by default (5-region
    tailer, entry `0x77000`, EMI offsets `0x2f0000`/`0x386000`); `1e` only after chip-id
    confirmation. *Gate:* `sw_sync0` ready bits set and firmware-owned state observed.
@@ -163,13 +163,13 @@ BT is a CONNSYS function: same 12 windows at `0x18002000` etc. as section 2. BT-
 IRQs: `0x19a` → GIC 442 `BTIF_WAKEUP_IRQ` (`interrupts.txt:174`); BT audio
 `0x197` at `0x18050000`/`0x18080000` (`fdt.dts` ~7583). Constants `BTIF 0x1100c000` and
 `APDMA 0x10217b00` are kept from the reference but are **not DTB-verified and unused**
-(`PORT-WIFI.md` §3). No standalone BT DT node exists.
+(`wifi-driver.md` §3). No standalone BT DT node exists.
 
 ### 4.2 Firmware present in the dump
 `soc2_2_ram_bt_1d_blr_1_hdr.bin` (691,052 B), `soc2_2_ram_bt_1e_1_hdr.bin` (692,436 B),
 `soc2_2_ram_mcu_1d_blr_1_hdr.bin` (198,012 B), `soc2_2_ram_mcu_1e_1_hdr.bin` (197,924 B);
 `BT_FW.cfg` (vendor 999 B / odm 456 B). Modules: `bt_drv_connac1x.ko`, `connadp.ko`,
-`wmt_drv.ko`, `mtk-btcvsd.ko`. The four raw blobs are copied to `kernel/x6886/firmware/`.
+`wmt_drv.ko`, `mtk-btcvsd.ko`. The four raw blobs are copied to `devices/x6886/prebuilt/firmware/`.
 
 ### 4.3 Exact alps source that documents power-on
 - `refs/alps-device-modules-6.12/arch/arm64/boot/dts/mediatek/mt6789.dts:5357-5385` —
@@ -184,7 +184,7 @@ IRQs: `0x19a` → GIC 442 `BTIF_WAKEUP_IRQ` (`interrupts.txt:174`); BT audio
   is an empty skeleton (`:104-106`, `:20`). No complete real MTK BT driver is available.
 
 ### 4.4 What the XNU stub currently does
-`kernel/x6886/hakios.x6886_bt.c` + `PORT-BT.md`: a real Skywalk kpipe provider
+`drivers/bluetooth/hakios.x6886_bt.c` + `bluetooth-driver.md`: a real Skywalk kpipe provider
 (`com.apple.nexus.hakios_bt`, `com.apple.uart.sk.bluetooth`, H4 TX/RX rings) adapted from
 `mtk_btsk.c`. It is **default OFF**: `x6886_bt_init()` returns without touching hardware
 unless `x6886_bt=1`, and with the flag but no registered backend returns a clean `ENXIO`
@@ -268,7 +268,7 @@ NVRAM infrastructure exists (`vendor/bin/nvram_daemon`, `libnvram*.so`,
   rings, CCIF doorbell, `ttyC0` AT channel (these are the files the current XNU stub read).
 
 ### 5.4 What the XNU stub currently does
-`kernel/x6886/hakios.x6886_cell.c` + `PORT-CELL.md`: **survey-only** control channel.
+`drivers/modem/hakios.x6886_cell.c` + `cellular-driver.md`: **survey-only** control channel.
 Without `cell_step=N` it logs and returns 0 (`:290-293`). With a step it maps DPMAIF/CCIF
 windows with `ml_io_map` and **only reads** modem state (four EMI words + AP CCIF registers),
 polls at most `100 × 1000 us`, allocates UL/DL rings in `kalloc`'d AP memory using the
@@ -342,7 +342,7 @@ power work.
 
 ### 6.4 What the XNU stub currently does
 **Nothing exists.** There is no GNSS/GPS stub, char device, HAL or AGPS client in
-`kernel/x6886/` or the XNU reference trees. The only GPS references found are comments in
+`drivers/` or the XNU reference trees. The only GPS references found are comments in
 `mtk_connsys.c` (`:2`, `:879`, `:2087-2100`, GPS log region `0x24100`) and a Qualcomm
 reference `mpss.c`. No XNU code claims the GPS EMI window or any LNA pinctrl state.
 
@@ -372,7 +372,7 @@ modem, and any CONNSYS power write without owner approval.
 ## 7. Open gaps (all subsystems)
 
 - No XNU driver, IRQ handler, firmware loader or userspace bridge for any connectivity
-  subsystem is running on X6886; `docs/DRIVER-MATRIX.md:14` marks connectivity NOT-PORTED.
+  subsystem is running on X6886; `docs/driver-matrix.md:14` marks connectivity NOT-PORTED.
 - MT6366 VCN supply registers are unverified; this blocks Wi-Fi/BT/GNSS power-on.
 - The WMT patch blobs `connsys_mt6835_mt6631.bin` / `_mt6635.bin` are absent from the dump.
 - SPI `0x6f` (CONNSYS MCU) is unnamed in `interrupts.txt`; needs on-device naming.

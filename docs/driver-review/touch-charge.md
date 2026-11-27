@@ -10,12 +10,12 @@ Source labels used below:
 
 | Label | Path |
 |---|---|
-| `fdt.dts` | `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts` (live FDT) |
-| `iomem.txt` | `/home/berucrypt00/hakios-x6886/device-dump/iomem.txt` (live `/proc/iomem`) |
-| `getprop.txt` | `/home/berucrypt00/hakios-x6886/device-dump/getprop.txt` |
-| `dmesg.txt` | `/home/berucrypt00/hakios-x6886/device-dump/dmesg.txt` |
-| `touch.md` | `/home/berucrypt00/hakios-x6886/dump-analysis/touch.md` |
-| `kernel-modules.md` | `/home/berucrypt00/hakios-x6886/dump-analysis/kernel-modules.md` |
+| `fdt.dts` | `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts` (live FDT) |
+| `iomem.txt` | `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/iomem.txt` (live `/proc/iomem`) |
+| `getprop.txt` | `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/getprop.txt` |
+| `dmesg.txt` | `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/dmesg.txt` |
+| `touch.md` | `/home/berucrypt00/hakios-x6886/docs/reference/dump-analysis/touch.md` |
+| `kernel-modules.md` | `/home/berucrypt00/hakios-x6886/docs/reference/dump-analysis/kernel-modules.md` |
 | `ini` | `/home/berucrypt00/otadump/odm/firmware/Conf_MultipleTest.ini` |
 | `bq2589x_reg.h` | `refs/alps-device-modules-6.12/drivers/power/supply/bq2589x_reg.h` |
 | `mtk_tcm.c` | `refs/oosexgang-xnu-kernel-mtk-helio/kernel/overlay/bsd/dev/mtk_tcm.c` (MT6768 REF) |
@@ -45,13 +45,13 @@ Source labels used below:
    searching both trees), so any SC8548 register offset would be invented.
    It is therefore REF + opt-in boot arg, read-only.
 
-## `kernel/x6886/hakios.x6886_touch.c` — every changed line
+## `drivers/input/hakios.x6886_touch.c` — every changed line
 
 Line numbers are in the **new** file.
 
 | New lines | Change | Evidence |
 |---|---|---|
-| 12-15 | Document `x6886_touch_ref=1` opt-in in the boot-arg header | MT6768-only offsets: `mtk_tcm.c:63-68,128-144`; gap already recorded in `PORT-TOUCH.md:49-50,79` |
+| 12-15 | Document `x6886_touch_ref=1` opt-in in the boot-arg header | MT6768-only offsets: `mtk_tcm.c:63-68,128-144`; gap already recorded in `touch-driver.md:49-50,79` |
 | 18-22 | Explain DT 1/16 coords vs live whole-pixel reports | `fdt.dts:4507` (`0x437f,0x95ff`); `ini:37-38` (1080/2400); `getprop.txt:1309-1310`; live 1081x2401 |
 | 71-79 | Add `FTS_RAW_X_MAX=1080`, `FTS_RAW_Y_MAX=2400`, live-cell counters 1081/2401 | `(0x437f>>4)+1=1080`, `(0x95ff>>4)+1=2400` from `fdt.dts:4507`; `ini:37-38`; `getprop.txt:1309-1310`; live report for the +1 cells |
 | 81-85 | Mark every GPIO/SPI register offset `REF ONLY`, gated by `x6886_touch_ref=1`; note bases are dump-verified | `mtk_tcm.c:63-68,128-144` is the only source of the offsets; bases `fdt.dts:2376-2378,1581-1583,1588-1590,4489`, `iomem.txt:96` |
@@ -70,7 +70,7 @@ start +4, size +8, data +12 at `0x480af000`, derived from `fdt.dts:92`), all
 bounded spins/waits (`X6886_SPI_SPIN_MAX`, `X6886_IRQ_SPIN_MAX`, `max_ticks`),
 FTS frame-layout boot args, bit-bang fallback and power/clock sequencing.
 
-## `kernel/x6886/hakios.x6886_charger.c` — every changed line
+## `drivers/power/hakios.x6886_charger.c` — every changed line
 
 Line numbers are in the **new** file.
 

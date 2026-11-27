@@ -11,7 +11,7 @@
  *
  * Nothing here is an idle stub. Block bases are from the device's own fdt.dts /
  * iomem.txt; internal register offsets are X676C reference values that need
- * owner sign-off (both are separated in PORT-GPU.md sections 2 and 6).
+ * owner sign-off (both are separated in gpu-driver.md sections 2 and 6).
  * Every diagnostic line is mirrored to the live ramoops console at 0x480af000.
  *
  * There is no CSF firmware on this GPU and no CSF path here: all submission is
@@ -446,7 +446,7 @@ gpu_name(uint32_t id)
 /* ---- operating points from this device's fdt.dts:5777-6005 ---------------- */
 /* 45 entries opp00..opp44; opp15 has a corrupt opp-microvolt string at :5858
  * and is kept here only as a marked invalid slot, never as an OPP. The table is
- * validated and reported; no DVFS transition is programmed (see PORT-GPU.md). */
+ * validated and reported; no DVFS transition is programmed (see gpu-driver.md). */
 struct x6886_opp {
 	uint16_t index;
 	bool valid;

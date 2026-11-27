@@ -7,14 +7,14 @@ Read-only research document. No code was edited, no build was run, no device was
 * The XNU tree **does** have a real driver-facing GICv3 API: `gic_v3_spi_attach()` / `gic_v3_spi_mask()` / `gic_v3_spi_unmask()` / `gic_v3_spi_detach()` / `gic_v3_spi_count()` in `refs/xnu-12377-hakios/osfmk/arm64/gic_v3_irq.c`. Claim in the task context ("no driver-facing GIC registration") is true of the **X6886 drivers**, not of this XNU tree: no X6886 driver calls these functions.
 * `IPE` **does not exist** in `refs/xnu-12377-hakios` (searched `osfmk/`, `iokit/`, `libkern/`, `bsd/`, `pexpert/` for `IPE`, `IPE_*`, `IPE[A-Z]`; no interrupt-related symbol). Do not plan around it.
 * `IOInterruptEventSource` **exists** (`iokit/IOKit/IOInterruptEventSource.h:132-180`, `iokit/Kernel/IOInterruptEventSource.cpp`) but needs an `IOService` nub with `IOInterruptControllers` and a concrete `IOInterruptController` (`iokit/IOKit/IOInterruptController.h:80-108`). This tree has only the abstract framework plus `IOCPUInterruptController` (IPIs) and `PassthruInterruptController` (IPIs); there is **no GIC IOKit controller**. The event-source path is therefore not usable for these BSD-style drivers without first writing a new controller service.
-* `cdev` APIs exist (`cdevsw_add()` in `bsd/dev/board/ufs.c`, `cdevsw_add_with_bdev()` there and in `bsd/dev/board/ufshc.c`), but none of the five target drivers registers a cdev today. `wakeup()` + `lck_mtx_sleep_deadline()` are the currently used in-kernel wakeup idiom (`kernel/x6886/hakios.x6886_mali.c:1169-1190, 1301-1400`).
+* `cdev` APIs exist (`cdevsw_add()` in `bsd/dev/board/ufs.c`, `cdevsw_add_with_bdev()` there and in `bsd/dev/board/ufshc.c`), but none of the five target drivers registers a cdev today. `wakeup()` + `lck_mtx_sleep_deadline()` are the currently used in-kernel wakeup idiom (`drivers/gpu/hakios.x6886_mali.c:1169-1190, 1301-1400`).
 * Touch, charger and PMIC/battery lines are **MTK EINT (GPIO) interrupts, not GIC SPIs**. There is no EINT controller driver in this XNU tree, so they cannot be attached with `gic_v3_spi_attach()` directly; a small chained EINT layer over the parent SPI is required first.
 
 ## 1. Hardware → GIC mapping, from this device's own dumps
 
 GICv3 INTID passed to `gic_v3_spi_attach()` = DTB SPI + 32 (`GIC_INTID_SPI_MIN 32`, `gic_v3_irq.c:79`). All GIC-listed lines below are Level (DTB flags `0x4` = IRQ_TYPE_LEVEL_HIGH); pass `edge = false`.
 
-| Driver | DTB node / property | SPI | GIC INTID (hwirq) | Observed in `device-dump/interrupts.txt` | Handler needed? |
+| Driver | DTB node / property | SPI | GIC INTID (hwirq) | Observed in `devices/x6886/evidence/interrupts.txt` | Handler needed? |
 |---|---|---|---|---|---|
 | GPU `mali@13000000` | `fdt.dts:5740-5741`: `<0 0x18c 4 0>` … `<0 0x190 4 0>`, names `GPU MMU JOB EVENT PWR` | 396,397,398,399,400 | **428,429,430,431,432** | 430 (irq 339, 9.8M), 429 (irq 340, 250), 428 (irq 341, 1.18M) at lines 159-161; 431/432 absent (never fired) | Yes: 428/429/430 first; 431/432 optional |
 | Audio `mt6789-afe-pcm@11210000` | `fdt.dts:5585`: `<0 0xea 4 0>` | 234 | **266** | line 147, `GICv3 266 Level Afe_ISR_Handle` (1.55M) | Yes |
@@ -51,15 +51,15 @@ All paths below are relative to `refs/xnu-12377-hakios/`.
 | `IPE` | — | **Absent**. No interrupt API by that name exists in this tree. |
 | EINT controller | — | **Absent**. `apirq@1000b000` (`mediatek,mt6983-eint`) is DTB-only; no XNU driver claims INTID 276. |
 
-There is no public header exporting the GIC SPI functions in this tree (only the `.c` prototype at `:123`). New code should declare them `extern` next to the existing `ml_io_map()`/`kvtophys()` declarations (e.g. `kernel/x6886/hakios.x6886_mali.c:46-50`) or in one new shared header `kernel/x6886/x6886_irq.h`.
+There is no public header exporting the GIC SPI functions in this tree (only the `.c` prototype at `:123`). New code should declare them `extern` next to the existing `ml_io_map()`/`kvtophys()` declarations (e.g. `drivers/gpu/hakios.x6886_mali.c:46-50`) or in one new shared header `drivers/x6886_irq.h`.
 
-Source-of-truth rule: the maintained sources are `kernel/x6886/hakios.x6886_*.c`; the build tree has copies at `refs/xnu-12377-hakios/bsd/dev/hakios.x6886_*.c` (both trees currently hold a mali copy with the same content; see `docs/V9-GPU-RUNTIME-PROOF.md:260`). Any implementation must edit both or copy from `kernel/x6886/` into the build tree before building.
+Source-of-truth rule: the maintained sources are `drivers/hakios.x6886_*.c`; the build tree has copies at `refs/xnu-12377-hakios/bsd/dev/hakios.x6886_*.c` (both trees currently hold a mali copy with the same content; see `docs/V9-GPU-RUNTIME-PROOF.md:260`). Any implementation must edit both or copy from `drivers/` into the build tree before building.
 
 ## 3. Per-driver wiring design
 
 ### 3.1 GPU — first, and the only driver that can use the GIC API as-is
 
-Targets in `kernel/x6886/hakios.x6886_mali.c` (and its build-tree copy):
+Targets in `drivers/gpu/hakios.x6886_mali.c` (and its build-tree copy):
 
 1. `:158-165` — replace/augment the DTB SPI constants with GIC INTIDs: `428 GPU`, `429 MMU`, `430 JOB`, `431 EVENT`, `432 PWR`, each with a comment naming the DTB SPI +32. Keep the existing `X6886_MALI_SPI_*` values for traceability.
 2. Near `:46-50` — add `extern` declarations for `gic_v3_spi_attach`, `gic_v3_spi_detach`, `gic_v3_spi_count`.
@@ -72,7 +72,7 @@ Verification: new `kern.hakios.mali_irq_counts` sysctl reading `gic_v3_spi_count
 
 ### 3.2 Audio — straightforward second GIC SPI
 
-Targets in `kernel/x6886/hakios.x6886_audio.c`:
+Targets in `drivers/audio/hakios.x6886_audio.c`:
 
 1. Constants near `:98-168` — add `X6886_AFE_GIC 266` (SPI 234 +32), with the `fdt.dts:5585` and `interrupts.txt:147` evidence in a comment.
 2. New handler after `x6886_afe_dma_check()` (`:239-265`) — read AFE IRQ status, write AFE IRQ clear (REF offsets from `mt6789-reg.h:2291-2296`, already cited in `docs/X6886-STUB-REMEDIATION.md`; only under `x6886_audio_ref=1`), set flag + `wakeup()` the DMA waiter.
@@ -95,10 +95,10 @@ Verification: `kern.hakios.ufs_native_fallbacks` must not increase; `hc_poller_p
 
 `gic_v3_spi_attach()` can only claim the EINT controller's **parent** SPI 244 → INTID **276** (`fdt.dts:3105-3113`). The parent does not appear as a separate line in `interrupts.txt`, and no XNU driver owns it. Therefore:
 
-1. New file `kernel/x6886/hakios.x6886_eint.c` (+ build-tree copy under `bsd/dev/`): attach INTID 276 (`edge=false`) once; in its handler read the `apirq@1000b000` (`0x1000b000`, `fdt.dts:3108`) EINT status registers, clear the handled bits, and dispatch to registered per-EINT callbacks. Register/unregister functions must be thread-context; callbacks run in IRQ context and may only set a flag + `wakeup()`. **Register offsets for this controller are not DTB-proven and are not present in the local XNU sources** — they must come from an owner-reviewed reference before any write; until then the file must only claim/observe and count, never program the EINT block.
-2. Touch (`kernel/x6886/hakios.x6886_touch.c`): register EINT **12** callback in `x6886_touch_init()` (`:609-699`, after `x6886_ready()`), replacing the `pin_get(FTS_PIN_IRQ)` spin at `:616-645`; callback wakes a channel that `tcm_thread()` waits on. The existing "IRQ line asserted before first read" log at `:588` becomes the first callback event. Keep the bounded tick count and `x6886_touch_stop()` (`:698`) unregistering the callback. Boot arg `x6886_touch_irq=1` (default: polling).
-3. Charger (`kernel/x6886/hakios.x6886_charger.c`): register EINT **0** (SC8548) and EINT **4** (SC8950) callbacks; each sets a flag that wakes the existing bounded verification loop around `x6886_chg_read_status()` (`:410-450`). Do not write SC8548 registers — `x6886_chg_sc8548_probe()` at `:454+` documents that no register map exists. Boot arg `x6886_chg_irq=1`.
-4. Battery (`kernel/x6886/hakios.x6886_battery.c`): register EINT **137** (mt6358-irq, `interrupts.txt:16`) and, only if a PMIC sub-IRQ decoder is later ported, the gauge sub-IRQs at `/proc` lines 272-280. Wake `batt_thread()` (`:156-214`) instead of the current fixed `delay(1000000)`. This is last: it depends on both the EINT layer and a PMIC register map that is currently REF-only (`x6886_batt_pmic=1` gate).
+1. New file `drivers/hakios.x6886_eint.c` (+ build-tree copy under `bsd/dev/`): attach INTID 276 (`edge=false`) once; in its handler read the `apirq@1000b000` (`0x1000b000`, `fdt.dts:3108`) EINT status registers, clear the handled bits, and dispatch to registered per-EINT callbacks. Register/unregister functions must be thread-context; callbacks run in IRQ context and may only set a flag + `wakeup()`. **Register offsets for this controller are not DTB-proven and are not present in the local XNU sources** — they must come from an owner-reviewed reference before any write; until then the file must only claim/observe and count, never program the EINT block.
+2. Touch (`drivers/input/hakios.x6886_touch.c`): register EINT **12** callback in `x6886_touch_init()` (`:609-699`, after `x6886_ready()`), replacing the `pin_get(FTS_PIN_IRQ)` spin at `:616-645`; callback wakes a channel that `tcm_thread()` waits on. The existing "IRQ line asserted before first read" log at `:588` becomes the first callback event. Keep the bounded tick count and `x6886_touch_stop()` (`:698`) unregistering the callback. Boot arg `x6886_touch_irq=1` (default: polling).
+3. Charger (`drivers/power/hakios.x6886_charger.c`): register EINT **0** (SC8548) and EINT **4** (SC8950) callbacks; each sets a flag that wakes the existing bounded verification loop around `x6886_chg_read_status()` (`:410-450`). Do not write SC8548 registers — `x6886_chg_sc8548_probe()` at `:454+` documents that no register map exists. Boot arg `x6886_chg_irq=1`.
+4. Battery (`drivers/power/hakios.x6886_battery.c`): register EINT **137** (mt6358-irq, `interrupts.txt:16`) and, only if a PMIC sub-IRQ decoder is later ported, the gauge sub-IRQs at `/proc` lines 272-280. Wake `batt_thread()` (`:156-214`) instead of the current fixed `delay(1000000)`. This is last: it depends on both the EINT layer and a PMIC register map that is currently REF-only (`x6886_batt_pmic=1` gate).
 
 Verification for EINT work: a sysctl counter per EINT number; callback counts must match the live `/proc/interrupts` deltas when later compared on-device; no unhandled-GIC growth.
 
@@ -107,7 +107,7 @@ Verification for EINT work: a sysctl counter per EINT number; callback counts mu
 | Step | Change | Gate / verification (no device access until a separate, explicitly approved bring-up) |
 |---|---|---|
 | 0 | Confirm statically that the XNU device tree given to `gic_v3_irq_cpu_init()` exposes `/arm-io/gic` with `reg` = GICD `0x00c00000/0x40000`, GICR `0x00c04000/0x200000` (Linux names it `/interrupt-controller`, `fdt.dts:776-787`). Confirm `GENERIC_GIC_V3_IRQ` is compiled via `BCM2837.h:14` + `build.sh:252`. | If `/arm-io/gic` is absent, add the alias in the loader-provided DT (target: loader DT construction in `build/loader/mtkloader.c`, inspect around the GIC setup at `:2228`/`:2914`); do **not** patch the Linux dump. Stop if the node cannot be established. |
-| 1 | Add `kernel/x6886/x6886_irq.h` with the extern prototypes and `X6886_*_GIC` INTID constants; copy to build tree. | Syntax check only; no behavioural change. |
+| 1 | Add `drivers/x6886_irq.h` with the extern prototypes and `X6886_*_GIC` INTID constants; copy to build tree. | Syntax check only; no behavioural change. |
 | 2 | GPU: steps 3.1.1–3.1.6. | `mali_irq=1` sysctl counters; `mali_irq=0` must reproduce today's exact polling behaviour (regression gate). |
 | 3 | Audio: steps 3.2.1–3.2.3. | `x6886_audio_ref=1 x6886_audio_irq=1` only; REF offsets remain opt-in. |
 | 4 | UFS: steps 3.3.1–3.3.4. | `ufs_native_irq=0` unchanged; `=1` reduces poller counts; quiesce restores UEFI state. |

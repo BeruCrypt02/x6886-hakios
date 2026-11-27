@@ -13,7 +13,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMG = f"{ROOT}/build/boot-HakiOS-X6886.img"
 LOADER = f"{ROOT}/devices/x6886/prebuilt/mtkloader.bin"
-ELF = "/tmp/opencode/elf-final2/mtkloader.elf"
+ELF = "/tmp/hakios-x6886/elf-final2/mtkloader.elf"
 READELF = f"{ROOT}/tools/root/usr/lib/llvm-20/bin/llvm-readelf"
 NM = f"{ROOT}/tools/root/usr/lib/llvm-20/bin/llvm-nm"
 START_S = f"{ROOT}/xnuloader/start.S"

@@ -5,9 +5,9 @@
  *   refs/alps-device-modules-6.12/drivers/misc/mediatek/usb/usb20/
  *     mtk_musb_reg.h, musb_core.c, musb_core.h, musb_gadget.c
  *   refs/alps-device-modules-6.12/drivers/phy/mediatek/phy-mtk-tphy.c
- *   device-dump/fdt.dts, iomem.txt, interrupts.txt, modules.txt
+ *   devices/x6886/evidence/fdt.dts, iomem.txt, interrupts.txt, modules.txt
  * Every MMIO base, IRQ, clock index and register below is cited with its
- * file:line. PORT-USB.md is the manifest (proof table + gaps).
+ * file:line. usb-driver.md is the manifest (proof table + gaps).
  *
  * This is NOT DWC3. The handset's live node is mediatek,mt6789-usb20
  * (fdt.dts:7458) and its IRQ is reported as musb-hdrc (interrupts.txt:49).
@@ -32,7 +32,7 @@ extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 extern void ml_io_unmap(vm_offset_t addr, vm_size_t size);
 extern void delay(int usec);
 
-/* ---- device blocks: device-dump/fdt.dts and device-dump/iomem.txt ------------- */
+/* ---- device blocks: devices/x6886/evidence/fdt.dts and devices/x6886/evidence/iomem.txt ------------- */
 
 #define X6886_MUSB_PHYS         0x11200000u     /* fdt.dts:7459; iomem.txt:104 */
 #define X6886_MUSB_SIZE         0x10000u        /* fdt.dts:7459; iomem.txt:104 */

@@ -5,19 +5,19 @@ the audit (`docs/X6886-DRIVER-AUDIT.md`) found to be scaffolds:
 
 | Driver | Init symbol | Boot gate today | Call site |
 |---|---|---|---|
-| `kernel/x6886/hakios.x6886_audio.c` | `x6886_audio_init` | `x6886_audio=1` | `drivers.c:181` |
-| `kernel/x6886/hakios.x6886_battery.c` | `x6886_battery_init` | `x6886_batt=1`, `x6886_batt_pmic=1` | `drivers.c:182` |
-| `kernel/x6886/hakios.x6886_bt.c` | `x6886_bt_init` | `x6886_bt=1` + registered backend | `drivers.c:191` |
-| `kernel/x6886/hakios.x6886_camera.c` | `x6886_camera_init` | `x6886_cam=1`, `x6886_cam_pmic=1` | `drivers.c:185` |
+| `drivers/audio/hakios.x6886_audio.c` | `x6886_audio_init` | `x6886_audio=1` | `drivers.c:181` |
+| `drivers/power/hakios.x6886_battery.c` | `x6886_battery_init` | `x6886_batt=1`, `x6886_batt_pmic=1` | `drivers.c:182` |
+| `drivers/bluetooth/hakios.x6886_bt.c` | `x6886_bt_init` | `x6886_bt=1` + registered backend | `drivers.c:191` |
+| `drivers/camera/hakios.x6886_camera.c` | `x6886_camera_init` | `x6886_cam=1`, `x6886_cam_pmic=1` | `drivers.c:185` |
 
 Constraints held for this plan and its implementation: read-only research on `otadump` (no
 writes there), no change to touch/charger/mali drivers (other owners), no full build, no device
-access, no flash. All new work is in `kernel/x6886/` and `docs/`.
+access, no flash. All new work is in `drivers/` and `docs/`.
 
 ## Evidence classes used below
 
 - **DTB/IOMEM-verified** — the address/IRQ/compatible appears in this handset's own
-  `device-dump/fdt.dts`, `device-dump/iomem.txt`, `device-dump/interrupts.txt`, `device-dump/modules.txt`,
+  `devices/x6886/evidence/fdt.dts`, `devices/x6886/evidence/iomem.txt`, `devices/x6886/evidence/interrupts.txt`, `devices/x6886/evidence/modules.txt`,
   or a file path in `otadump/all_files.txt`. Safe to use as a physical base or device address.
 - **REF-only** — the register offset/bit/sequence comes from a reference source
   (`refs/alps-device-modules-6.12/...`, `refs/oosexgang-xnu-kernel-mtk-helio/...`) and is **not**
@@ -217,7 +217,7 @@ backend (`:368-371`), and `x6886_bt_ready_set()` only flips a gate (`:431-438`).
 | BTIF | `0x1100c000`, `0x1000`, IRQ 0xbe/0xb8/0xb9 | DTB | `fdt.dts:4477-4483`, `:9182` |
 | BT PMIC/antenna supplies | CONNSYS power domain `<0x2e 0x01>`, EMI `0x7f000000/0x500000` | DTB | `fdt.dts:6960-6966` |
 | `bt_drv_connac1x.ko`, `btif_drv.ko`, `wmt_drv.ko` | modules | DTB/userland | `all_files.txt:11764,11765,11945`; `modules.txt:1-4,112,166-167` |
-| BT firmware `soc2_2_ram_bt_1d_blr_1_hdr.bin`, `_1e_`, `soc2_2_ram_mcu_*` | blobs | dump present | `all_files.txt:9514-9517`; copied to `kernel/x6886/firmware/` |
+| BT firmware `soc2_2_ram_bt_1d_blr_1_hdr.bin`, `_1e_`, `soc2_2_ram_mcu_*` | blobs | dump present | `all_files.txt:9514-9517`; copied to `devices/x6886/prebuilt/firmware/` |
 | `CONSYS_HW_ID +0x00`, `CONSYS_FW_ID +0x04`, `CONSYS_IP_VER 0x10`, `CONSYS_CONF_ID 0x1c` | offsets | REF | `mtk_connsys.c:15,69-75` |
 | H4 send / power-on / WMT / STP ops | — | REF, other owner | `mtk_connsys.c:274,701,802,827,1931-1956`; `mtk_bt_skel.c:20,104-106` |
 
@@ -348,6 +348,6 @@ register table for this handset. The rail-enable and pwrap sequence is REF-only 
 - `git diff --check` on all four files: no whitespace errors.
 - Balanced `{`/`}` counts and terminating NUL/newline for each C file; no new `__has_include`
   or missing-symbol references.
-- Confirm no edits outside `kernel/x6886/{audio,battery,bt,camera}.c` and this document, and
+- Confirm no edits outside `drivers/{audio,battery,bt,camera}.c` and this document, and
   that `otadump` is unmodified (`git -C /home/berucrypt00/otadump status --porcelain` empty).
 - Every new write path has a numeric spin cap and a readback; every new boot arg defaults OFF.

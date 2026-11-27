@@ -1,75 +1,63 @@
-# HakiOS for Infinix Hot 60 Pro+ (X6886)
+# HakiOS · Infinix X6886
 
-Device-specific bring-up work for Darwin/XNU (HakiOS) on the Infinix X6886:
-MediaTek MT6789 / Helio G200, 8 GB RAM, UFS 2.2, 1080x2400 AMOLED, Mali-G57 MC2.
+[Device](devices/x6886/README.md) · [Docs](docs/index.md) · [Bring-up](docs/plan/bringup.md) · [Status](docs/plan/status.md) · [Drivers](docs/driver-review/driver-matrix.md) · [Contributing](CONTRIBUTING.md)
 
-This repository tracks the board package, kernel drivers, loader sources, build
-scripts, evidence, and notes. The large iOS system image, upstream checkouts,
-and local toolchain are intentionally not committed; see `.gitignore`.
+HakiOS runs Apple's open-source XNU kernel with a Darwin user space on the
+Infinix Hot 60 Pro+ (X6886). This repository holds the device package: board
+data, kernel drivers, the resident loader, build scripts, evidence, and the
+bring-up record. Upstream code stays in `refs/`; the iOS system image stays in
+`ios27/`. Neither is committed.
 
-## Status
+> Experimental. The phone's Android installation remains the system of record.
+> No partition write is automated here. Read the safety rules before flashing.
 
-The current work reaches the Darwin root mount, switches the root to the system
-volume, starts `/sbin/launchd.darwin`, and continues into userland bring-up.
-The home screen is not yet a supported daily-driver state. See
-[docs/plan/STATUS.md](docs/plan/STATUS.md) for the exact gate-by-gate record.
+## What is here
 
-## Layout
+- **One device, explicitly.** Every constant comes from the live X6886 dump or
+  an observed boot log; no value is inherited from a Qualcomm port without
+  being marked as reference-only.
+- **Layered data.** The device lives in `devices/x6886/`, the SoC in
+  `socs/mt6789/`, drivers in `drivers/`, loader sources in `xnuloader/`.
+- **Offline release gate.** `tools/verify-x6886-final.py` checks the final boot
+  image, loader blob, ELF, and board sources without touching the phone.
+- **Evidence beside claims.** Driver manifests cite dump files and line
+  numbers. Unverified hardware stays marked as such.
 
-| Path | Purpose |
-|---|---|
-| `devices/x6886/` | Device manifest, board config, prebuilt loader/DTB/firmware, evidence, legacy paths |
-| `socs/mt6789/` | Shared SoC facts for the Helio G200 |
-| `drivers/` | X6886 kernel drivers grouped by subsystem |
-| `xnuloader/` | Resident loader sources (`mtkloader.c`, `ufs.h`, `ufs_darwin.h`, `start.S`) |
-| `tools/` | Build, payload, QEMU, and verification scripts |
-| `ios27/` | Local, ignored iOS 27 system and RAM images |
-| `refs/` | Local, ignored upstream checkouts |
-| `docs/` | Getting started, porting notes, driver reviews, plan, and dump evidence |
-| `build/` | Generated boot images and ELF/object output, ignored by git |
+## How it boots
 
-Start at [docs/index.md](docs/index.md).
+```
+boot ROM -> preloader -> LK (stock, untouched)
+   LK loads boot_a: mtkloader, Android Image, XNUP payload
+      mtkloader: starts UFS block server, maps ramdisk images, jumps to XNU
+         XNU: mounts the Darwin root, switches to the system volume, starts launchd
+            ... the run ends -> log to ramoops -> the phone returns to Android
+```
 
-## Prerequisites
+Verified so far: UFS read path, APFS super mount, root switch, launchd exec,
+and the first userland services. The home screen is not yet a daily-driver
+state; see [status](docs/plan/status.md).
 
-- Linux host with the local toolchain under `tools/root/` and `tools/bin/`.
-- Upstream checkouts under `refs/` (ignored).
-- Stock boot image and device dumps under `/home/berucrypt00/otadump` (ignored).
-- iOS 27 images under `ios27/` (ignored).
-
-Source the environment first:
+## Quick start
 
 ```sh
 cd /path/to/x6886-hakios
 . ./env.sh
-```
-
-## Build
-
-The offline verifier is the release gate. It reads only local files and never
-touches the device:
-
-```sh
 python3 tools/verify-x6886-final.py
 # RESULT: 13/13 checks passed
 ```
 
-Rebuild the loader symbols used by that verifier:
+Rebuild the loader symbols if the verifier reports `6/13`:
 
 ```sh
 bash tools/build-loader-elf-x6886.sh
+python3 tools/verify-x6886-final.py
 ```
 
-Rebuild the kernel and payload only when changing their sources:
+## Build
 
 ```sh
 bash tools/build-kernel-x6886.sh
 python3 tools/build-payload-x6886.py build/payload-x6886.bin
-```
-
-Repack a boot image with magiskboot (absolute output path required):
-
-```sh
 sh tools/repack-magiskboot.sh \
   "$DUMP_ROOT/images/boot.img" \
   devices/x6886/prebuilt/mtkloader.bin \
@@ -77,39 +65,32 @@ sh tools/repack-magiskboot.sh \
   "$PWD/build/boot-HakiOS-X6886.img"
 ```
 
-## Flashing safety
+The verifier reads only local files. `ios27/`, `refs/`, the toolchain, and
+generated boot images are local inputs and are ignored by git.
 
-This project does not flash automatically. If you flash manually:
+## Safety
 
-- Do not modify GPT, `super`, `userdata`, `metadata`, `lk`, `preloader`, `secfg`,
-  `vbmeta`, or `tee`.
-- Stock Transsion LK does not implement `fastboot boot`; it answers
-  `unknown command`.
-- Confirm the active slot before writing. Both `boot_a` and `boot_b` must be
-  written explicitly if the experiment targets both slots.
-- Never treat a partition write as successful until the written hash matches
+- Do not write GPT, `super`, `userdata`, `metadata`, `lk`, `preloader`,
+  `secfg`, `vbmeta`, or `tee`.
+- Stock Transsion LK rejects `fastboot boot` with `unknown command`.
+- Confirm the active slot before any write. Writing `boot_a` and `boot_b` is
+  explicit, never implicit.
+- A successful fastboot write is proven only by comparing the written hash with
   the built image.
 
-See [docs/plan/boot-image-safety.md](docs/plan/boot-image-safety.md).
+Full rules: [docs/plan/boot-image-safety.md](docs/plan/boot-image-safety.md).
 
-## Troubleshooting
+## Device
 
-| Symptom | First check |
-|---|---|
-| `RESULT: 6/13` from the verifier | Rebuild `tools/build-loader-elf-x6886.sh`; the ELF under `/tmp/opencode` is scratch |
-| `MOUNT_DIAG ok=0 errno=5` | UFS block-server read failure; see `docs/driver-review/x6886-audit.md` |
-| `failed to query hardware target: 22` | Kernel `hw.target` sysctl fallback missing |
-| Text console hides the Apple logo | Loader must set `v_display=1` and `PE_create_console()` must use text mode during `-v` |
-| Cryptex mount ENOENT | Expected on this image; the inline shared-cache bind is the fallback |
+| Device | SoC | State |
+| --- | --- | --- |
+| Infinix Hot 60 Pro+ (X6886) | MediaTek MT6789 / Helio G200 | Bring-up; userland work in progress |
 
-## Contributing
+Board facts: [devices/x6886/README.md](devices/x6886/README.md). SoC facts:
+[socs/mt6789/soc.toml](socs/mt6789/soc.toml).
 
-See [CONTRIBUTORS.md](CONTRIBUTORS.md) and
-[docs/reference/project-reorg.md](docs/reference/project-reorg.md). Keep large
-binary inputs out of git and run the 13/13 verifier before committing build
-changes.
+## Contributing and licences
 
-## License
-
-See upstream HakiOS/XNU licenses for the imported sources. This repository's
-original notes and scripts are provided as-is for bring-up research.
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Imported XNU, HakiOS, and IPSW-derived
+material keep their upstream licences; this repository's notes and scripts are
+provided for bring-up research.

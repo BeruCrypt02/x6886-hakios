@@ -143,8 +143,8 @@ is the **third** consumer, not the first. This is why "LK left it ready" is reas
 
 ### 1.3 Live FDT — exact controller binding (VERIFIED)
 
-`/home/berucrypt00/hakios-x6886/device-dump/fdt.dts`, lines 5660–5674 (identical content
-in `board/x6886-base.dts` lines 4428–4442):
+`/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts`, lines 5660–5674 (identical content
+in `devices/x6886/prebuilt/device-tree.dts` lines 4428–4442):
 
 ```dts
 		ufshci@11270000 {
@@ -203,7 +203,7 @@ driver with no compatible-string change (VERIFIED).**
 
 ### 1.4 Live Android properties — LK selected UFS as boot device (VERIFIED)
 
-`/home/berucrypt00/x6886-hakios/device-dump/getprop.txt` line 1922:
+`/home/berucrypt00/x6886-hakios/devices/x6886/evidence/getprop.txt` line 1922:
 
 ```
 [ro.boot.boot_devices]: [bootdevice, soc/11270000.ufshci, 11270000.ufshci]
@@ -211,15 +211,15 @@ driver with no compatible-string change (VERIFIED).**
 
 That is the runtime form of LK's `androidboot.boot_devices=...` string in §1.1.
 
-`/home/berucrypt00/x6886-hakios/device-dump/fdt.dts`:
+`/home/berucrypt00/x6886-hakios/devices/x6886/evidence/fdt.dts`:
 
 - `mmc@11230000` (MSDC0/eMMC) has `status = "disabled";`
 - `mmc@11240000` (MSDC1/SD) has `status = "disabled";`
 
-`/home/berucrypt00/x6886-hakios/device-dump/cmdline.txt` contains `gpt=1` and
+`/home/berucrypt00/x6886-hakios/devices/x6886/evidence/cmdline.txt` contains `gpt=1` and
 `ufshcd_core.poll_queues=0`.
 
-`device-dump/dmesg.txt` contains **no UFS lines** (kernel log excerpt is unrelated) —
+`devices/x6886/evidence/dmesg.txt` contains **no UFS lines** (kernel log excerpt is unrelated) —
 no runtime HCI version/LUN data available there.
 
 **Conclusion (VERIFIED):** this board boots *only* from UFS. LK had to initialize UFS

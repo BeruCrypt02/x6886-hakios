@@ -84,8 +84,8 @@ module; the U-Boot driver is independent and does not need these.
 
 ## 2. UFS controller node in the live FDT — VERIFIED
 
-Both `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts` (lines 5660–5674) and
-`/home/berucrypt00/hakios-x6886/board/x6886-base.dts` (lines 4428–4442) contain the
+Both `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts` (lines 5660–5674) and
+`/home/berucrypt00/hakios-x6886/devices/x6886/prebuilt/device-tree.dts` (lines 4428–4442) contain the
 **same node, byte-for-byte in content**:
 
 ```dts

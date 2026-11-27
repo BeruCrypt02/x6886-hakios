@@ -2,7 +2,7 @@
 
 Date: 2026-11-23
 Scope: web + local-file research only. No device access. No flashing. No driver code written.
-Only file written is this report (one temporary `strings` scratch file under `/tmp/opencode` was created during analysis and deleted).
+Only file written is this report (one temporary `strings` scratch file under `/tmp/hakios-x6886` was created during analysis and deleted).
 
 Evidence labels used below:
 
@@ -183,14 +183,14 @@ Status **CLAIM** (author's README/PROJECT_STATE): fastboot, ACM console, UMS, AM
 
 ### 4.2 Line B — upstream U-Boot + Loki chainload (`sysretq0`), closest to the target design
 
-**VERIFIED** from https://raw.githubusercontent.com/sysretq0/advan-x1-uboot/main/README.md and `scripts/build.sh`:
+**VERIFIED** from https://raw.githubusercontent.com/sysretq0/advan-x1-uboot/main/README.md and `tools/build.sh`:
 
 ```bash
 # 1. verify patches apply cleanly on pristine upstream U-Boot
-./scripts/build.sh verify
+./tools/build.sh verify
 
 # 2. build; pins upstream base commit c1958b5f6cce03956d309ce422b5d9f819955d4a
-./scripts/build.sh            # CROSS_COMPILE=aarch64-linux-gnu- by default
+./tools/build.sh            # CROSS_COMPILE=aarch64-linux-gnu- by default
 
 # 3. pack into a composite LK image (Loki repo, separate checkout)
 ./loki port /path/to/stock/lk.img --soc mt6789 --name "..." --fw v1 -o devices/mt6789/my_device.json
@@ -299,7 +299,7 @@ Our master notes record that `fstab` uses `avb=vbmeta_system` and a disabled vbm
 - https://api.github.com/repos/sysretq0/advan-x1-uboot/contents/patches
 - https://api.github.com/repos/sysretq0/advan-x1-uboot/commits?per_page=20
 - https://raw.githubusercontent.com/sysretq0/advan-x1-uboot/main/README.md
-- https://raw.githubusercontent.com/sysretq0/advan-x1-uboot/main/scripts/build.sh
+- https://raw.githubusercontent.com/sysretq0/advan-x1-uboot/main/tools/build.sh
 - https://raw.githubusercontent.com/sysretq0/advan-x1-uboot/main/configs/mt6789_advan_x1_defconfig
 - https://raw.githubusercontent.com/sysretq0/advan-x1-uboot/main/patches/0014-board-mediatek-Add-Advan-X1-MT6789-board-support.patch
 - https://api.github.com/repos/sysretq0/loki

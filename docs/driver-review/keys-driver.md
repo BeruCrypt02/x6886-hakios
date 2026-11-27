@@ -1,7 +1,7 @@
 # X6886 keypad / MT6366 keys port manifest
 
 Branch `feat/x6886-real-port`, 100% offline: no adb, no fastboot, no build, no flash.
-Only `kernel/x6886/hakios.x6886_keys.c` and this manifest were written.
+Only `drivers/input/hakios.x6886_keys.c` and this manifest were written.
 
 ## Source
 Real MTK logic: `refs/oosexgang-xnu-kernel-mtk-helio/kernel/overlay/bsd/dev/mtk_keys.c`
@@ -19,7 +19,7 @@ declares `mt6366keys` / `mediatek,mt6366-keys` for this SoC. The legacy `mt6358k
 ## Constants (file:line)
 | Constant | Value | Proof |
 |---|---|---|
-| keypad | `0x10010000`, size `0x1000` | `device-dump/fdt.dts:4002-4004` (`kp@10010000`, `mediatek,kp`) |
+| keypad | `0x10010000`, size `0x1000` | `devices/x6886/evidence/fdt.dts:4002-4004` (`kp@10010000`, `mediatek,kp`) |
 | map | `0x73` vol-up, `0x72` vol-down | `fdt.dts:4006` (`mediatek,hw-init-map`); `mtk_keys.c:7-8` |
 | KP_MEM1 | `0x4` | `mtk_keys.c:28` |
 | pwrap | `0x10026000`, size `0x1000` | `fdt.dts:3219-3220` (`mediatek,mt6789-pwrap`) |

@@ -1,7 +1,7 @@
 # Optical Fingerprint (FOD) — Infinix X6886 stock dump analysis
 
 Analysis date: 2026-11-23
-Source: `/home/berucrypt00/otadump` (read-only). FDT cross-check: `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts`.
+Source: `/home/berucrypt00/otadump` (read-only). FDT cross-check: `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts`.
 Tools used: `file`, `modinfo`, `readelf`, `strings`, `xxd`, `grep`, `find`, `objdump` (symbols only).
 No files in the dump were modified. No device interaction was performed.
 
@@ -460,5 +460,5 @@ set_tee_worker_threads_schedue , set_tee_worker_threads_on_big_core
 /home/berucrypt00/otadump/vendor/app/mcRegistry/05063956000000000000000000000000.tabin
 /home/berucrypt00/otadump/vendor/app/mcRegistry/05063976000000000000000000000000.tabin
 /home/berucrypt00/otadump/vendor/app/mcRegistry/05063986000000000000000000000000.tabin
-/home/berucrypt00/hakios-x6886/device-dump/fdt.dts  (lines 4508,4525,4558-4591,4605-4608,8128-8141,8414,8482,9188)
+/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts  (lines 4508,4525,4558-4591,4605-4608,8128-8141,8414,8482,9188)
 ```

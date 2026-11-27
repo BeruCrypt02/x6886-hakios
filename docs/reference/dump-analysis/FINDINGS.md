@@ -6,7 +6,7 @@ this directory; this file is the index and the decision input for the first
 driver.
 
 Source: `/home/berucrypt00/otadump`. Live device evidence is in
-`../device-dump/HARDWARE-IDENTITY.md`. Both were read only. No phone writes.
+`../devices/x6886/evidence/HARDWARE-IDENTITY.md`. Both were read only. No phone writes.
 
 ## Verified hardware identity (three independent sources agree)
 
@@ -128,4 +128,4 @@ the dump's own `modules.load` order and the QEMU result, where the iOS
 userland already boots to SpringBoard once a framebuffer exists.
 
 No driver code is written yet. The board/soc definitions in
-`device/x6886/` record verified wiring with `features = <>`.
+`devices/x6886/legacy/` record verified wiring with `features = <>`.

@@ -22,7 +22,7 @@ firmware payload written. Analysis date 2026-11-26.
   blocker for the XNU JM path.
 
 Evidence tags: **[V]** = verified in local file this session or in
-`dump-analysis/gap-gpu-firmware.md`; **[E]** = external authoritative source (URL in
+`docs/reference/dump-analysis/gap-gpu-firmware.md`; **[E]** = external authoritative source (URL in
 §7); **[I]** = inference explicitly marked as such.
 
 ---
@@ -33,7 +33,7 @@ Stock driver module: `mali_kbase_mt6789_a16w_jm.ko` in
 `/home/berucrypt00/otadump/vendor_dlkm/lib/modules/` (1,605,128 bytes). Version string
 `version=r54p1-12eac0 (UK version 11.46)`. The device's own spec dump records
 `OpenGL ES 3.2 v1.r54p1-12eac0.31596c752a7e2ed34e05ad43c82dd58d`
-(`/home/berucrypt00/hakios-x6886/device-dump/X6886-specs.txt:67`).
+(`/home/berucrypt00/hakios-x6886/devices/x6886/evidence/X6886-specs.txt:67`).
 
 | Blob | On-device path | Evidence | Role |
 | :-- | :-- | :-- | :-- |
@@ -100,12 +100,12 @@ Clarifications that matter:
   firmware file is missing from the dump." The first clause is correct and is confirmed
   here. The second clause is too broad if read as a statement about stock Linux
   `kbase`: the two blobs genuinely are absent from the dump
-  (`dump-analysis/gap-gpu-firmware.md`). It is correct only for the XNU JM path, which
+  (`docs/reference/dump-analysis/gap-gpu-firmware.md`). It is correct only for the XNU JM path, which
   needs neither blob.
 - `docs/HANDOFF-IOS27-BOOT.md:12` ("NOT CSF. There is NO `mali_csffw.bin` / valhall CSF
   firmware for this chip") is correct in substance: the chip does not *use* CSF
   firmware. A generic SELinux rule still names the file **[V]**.
-- `dump-analysis/firmware.md:255` proposed three possibilities for `sffw.bin`, including
+- `docs/reference/dump-analysis/firmware.md:255` proposed three possibilities for `sffw.bin`, including
   "this driver revision falls back to a no-firmware path." That open question is now
   closed for the XNU path: the chosen path has no firmware loading at all.
 
@@ -182,11 +182,11 @@ Ordered by preference; all are non-destructive.
 
 Local (verified this session unless noted):
 
-- `/home/berucrypt00/x6886-hakios/dump-analysis/gap-gpu-firmware.md` — exact names,
+- `/home/berucrypt00/x6886-hakios/docs/reference/dump-analysis/gap-gpu-firmware.md` — exact names,
   `.ko` string offsets, three SELinux contexts, absence checks, compressed-literal proof.
 - `/home/berucrypt00/otadump/vendor_dlkm/lib/modules/mali_kbase_mt6789_a16w_jm.ko` —
   driver strings and version (via prior verified analysis).
-- `/home/berucrypt00/hakios-x6886/device-dump/X6886-specs.txt:67` — r54p1-12eac0 version.
+- `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/X6886-specs.txt:67` — r54p1-12eac0 version.
 - `/home/berucrypt00/x6886-hakios/refs/heliodarwin/wiki/MT6789-GPU-Power-Sequence.md`
   and `MaliMetal-Driver.md` — JM-only path, no firmware references, confirmed JM
   completions.
@@ -195,7 +195,7 @@ Local (verified this session unless noted):
 - `/home/berucrypt00/x6886-hakios/refs/akita/drivers/gpu/hakios.akita_mali.c:56` —
   `FW_NAME "mali_csffw-r54p2.bin"` on G715/v11 CSF (contrast case).
 - `/home/berucrypt00/x6886-hakios/docs/X6886-GPU-PLAN.md`,
-  `HANDOFF-IOS27-BOOT.md`, `dump-analysis/firmware.md` — prior claims reconciled above.
+  `HANDOFF-IOS27-BOOT.md`, `docs/reference/dump-analysis/firmware.md` — prior claims reconciled above.
 
 External (read-only, authoritative):
 

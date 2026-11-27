@@ -10,8 +10,8 @@ Exit status:
   2  source missing/unreadable
 
 Usage:
-  ./scripts/check-mali-v9.py                       # default driver in this tree
-  ./scripts/check-mali-v9.py /path/to/driver.c     # check any copy/candidate
+  ./tools/check-mali-v9.py                       # default driver in this tree
+  ./tools/check-mali-v9.py /path/to/driver.c     # check any copy/candidate
 """
 from __future__ import annotations
 

@@ -9,7 +9,7 @@ PAYLOAD=${3:?XNUP payload.bin}
 OUT=${4:?output boot.img}
 CHAIN=/home/berucrypt00/hakios-x6886/build/chainboot-x6886.py
 MB=/home/berucrypt00/x6886-hakios/tools/bin/magiskboot
-WORK=$(mktemp -d /tmp/opencode/repack-mb.XXXXXX)
+WORK=$(mktemp -d /tmp/hakios-x6886/repack-mb.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 
 # 1) Build the chain blob (loader + Android Image + XNUP) with the Python packer.

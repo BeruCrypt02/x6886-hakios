@@ -8,17 +8,17 @@ Status of every item in this document: **Phase 4 / NOT-PORTED** on the X6886 XNU
 
 | Source | What it gave |
 |---|---|
-| `device-dump/fdt.dts` | Live device tree: AFE, sound card, codec, I2C amps, pinctrl, supplies |
-| `device-dump/dt-nodes.txt` | Sysfs view confirming the same nodes |
-| `device-dump/modules.txt`, `device-dump/iomem.txt` | Live modules and MMIO at dump time |
-| `device-dump/X6886-specs.txt` | Hardware summary line for the audio amp |
+| `devices/x6886/evidence/fdt.dts` | Live device tree: AFE, sound card, codec, I2C amps, pinctrl, supplies |
+| `devices/x6886/evidence/dt-nodes.txt` | Sysfs view confirming the same nodes |
+| `devices/x6886/evidence/modules.txt`, `devices/x6886/evidence/iomem.txt` | Live modules and MMIO at dump time |
+| `devices/x6886/evidence/X6886-specs.txt` | Hardware summary line for the audio amp |
 | `/home/berucrypt00/otadump/kernel_config.txt` | Kernel audio config |
 | `/home/berucrypt00/otadump/mtk/installed-files-vendor.txt`, `all_files.txt` | File inventory |
 | `/home/berucrypt00/otadump/vendor_dlkm/lib/modules/`, `odm_dlkm/lib/modules/` | Exact `.ko` names and `modules.load` order |
 | `/home/berucrypt00/otadump/odm/etc/vconfig/audio/` | Mixer map, mic metadata, tuning, amp blobs |
 | `/home/berucrypt00/otadump/vendor/etc/audio_policy_configuration.xml`, `system_ext/etc/audio_policy_configuration.xml` | Android device and stream routing |
 | `/home/berucrypt00/x6886-hakios/refs/` | XNU audio and CoreAudio reference work |
-| `docs/DRIVER-MATRIX.md:15`, `docs/X6886-PMIC-THERMAL.md:19-22` | Existing audits, read to avoid duplication |
+| `docs/driver-matrix.md:15`, `docs/X6886-PMIC-THERMAL.md:19-22` | Existing audits, read to avoid duplication |
 
 `docs/X6886-DRIVER-AUDIT.md` was not present when this was written; `docs/X6886-PMIC-THERMAL.md` was. This document does not edit either.
 
@@ -28,7 +28,7 @@ Status of every item in this document: **Phase 4 / NOT-PORTED** on the X6886 XNU
 
 | Item | Value | Evidence |
 |---|---|---|
-| Codec IC | MT6366 inside the PMIC, node `mt6358codec`, compatible `mediatek,mt6366-sound` | `fdt.dts:3832-3841`; `modules.alias` in `dump-analysis/sensors-audio-pmic.md:60` |
+| Codec IC | MT6366 inside the PMIC, node `mt6358codec`, compatible `mediatek,mt6366-sound` | `fdt.dts:3832-3841`; `modules.alias` in `docs/reference/dump-analysis/sensors-audio-pmic.md:60` |
 | Codec position | Child of `pwrap@10026000` / `mediatek,mt6366`, not a separate I2C chip | `fdt.dts:3219-3229` |
 | Codec config | `mediatek,dmic-mode = <0>` (analog mic path), `mediatek,mic-type = <1>`, `io-channel-names = "pmic_hpofs_cal"`, `nvmem-names = "pmic-hp-efuse"` | `fdt.dts:3834-3839` |
 | Codec supply | `reg-vaud28-supply` to `ldo-vaud28`, fixed 2.8 V (0x2ab980), always on | `fdt.dts:3728-3736`, `3839` |
@@ -167,7 +167,7 @@ No MT6366 or RT5682 audio driver exists in the inspected reference trees. The fi
 | audioserver stability | Not tested on X6886 | `klios716/xnu/NOTES.md:153` records the VirtualAudio.plugin workaround for a missing audio device | NOT-PORTED |
 | BT / USB / FM audio | Android HAL declares these ports | No X6886 XNU work | NOT-PORTED |
 
-`docs/DRIVER-MATRIX.md:15` marks audio UNVERIFIED and says no X6886 audio DT node was cited. The live FDT does contain the nodes listed in section 2. Hardware presence is verified; the XNU port is not.
+`docs/driver-matrix.md:15` marks audio UNVERIFIED and says no X6886 audio DT node was cited. The live FDT does contain the nodes listed in section 2. Hardware presence is verified; the XNU port is not.
 
 ## 5. Ordered steps for Phase 4
 

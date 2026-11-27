@@ -10,8 +10,8 @@
  *     hif/ccci_hif_ccif.c         APCCIF_BUSY/TCHNUM doorbell sequence
  *     hif/ccci_ringbuf.h          read/write/length ring control layout
  *     port/port_cfg.c             the char node named "ttyC0"
- *   device-dump/fdt.dts, interrupts.txt  every physical address and IRQ below.
- *   PORT-CELL.md carries the line-by-line proof and the safety confirmation.
+ *   devices/x6886/evidence/fdt.dts, interrupts.txt  every physical address and IRQ below.
+ *   cellular-driver.md carries the line-by-line proof and the safety confirmation.
  *
  * Deliberately NOT translated: modem image loading, NVRAM/IMEI/protect1/protect2
  * access, HW reset, and any SMEM write. EMI/SMEM here is a READ-ONLY observation.
@@ -99,7 +99,7 @@ x6886_cell_log(const char *fmt, ...)
 
 #define X6886_CELL_LOG(...) x6886_cell_log(__VA_ARGS__)
 
-/* ---- verified constants (file:line proof in PORT-CELL.md) ------------------- */
+/* ---- verified constants (file:line proof in cellular-driver.md) ------------------- */
 /* fdt.dts:4159-4169: dpmaif@10014000, four 0x1000 windows, interrupt SPI 0xf1 */
 #define X6886_DPMAIF_AO_PHYS     0x10014000ULL
 #define X6886_DPMAIF_PD_MD_PHYS  0x1022d000ULL
@@ -362,7 +362,7 @@ x6886_cell_stop(void)
 }
 
 /* The existing /dev/ttyC0 char node is bound by the integrator; this tree has
- * no such node (audit result in PORT-CELL.md), so the default is an empty hook. */
+ * no such node (audit result in cellular-driver.md), so the default is an empty hook. */
 int
 x6886_cell_at_bind(void *ttyc0)
 {

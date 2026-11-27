@@ -1,9 +1,9 @@
 # Touch controller analysis — Infinix X6886 (MT6789) stock dump
 
 Analysis context: **read-only** inspection of `/home/berucrypt00/otadump` (stock dump) plus the
-live-device FDT decompilation at `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts`.
+live-device FDT decompilation at `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts`.
 No phone access, no writes to the dump. Scratch copies/hashes were computed only in
-`/tmp/opencode/touch-analysis/`.
+`/tmp/hakios-x6886/touch-analysis/`.
 
 Everything below is split into **[VERIFIED]** (directly observed in files) and
 **[INFERENCE]** (interpretation, must be confirmed on hardware before acting on it).
@@ -322,7 +322,7 @@ helper. They are not the touch driver — they expose `/proc/perfmgr_touch_boost
 
 ### 6.2 Live FDT: bus and node [VERIFIED]
 
-File: `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts`
+File: `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts`
 
 `touch` top-level node (lines ~1603–1623):
 

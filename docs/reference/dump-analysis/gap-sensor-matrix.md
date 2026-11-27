@@ -2,7 +2,7 @@
 
 Analysis date: 2026-11-23
 Mode: **read-only**. Sources: stock OTA dump `/home/berucrypt00/otadump` plus live-device captures under
-`/home/berucrypt00/hakios-x6886/device-dump/` (`fdt.dts`, `fdt.dtb`, `dt-nodes.txt`, `dmesg.txt`,
+`/home/berucrypt00/hakios-x6886/devices/x6886/evidence/` (`fdt.dts`, `fdt.dtb`, `dt-nodes.txt`, `dmesg.txt`,
 `getprop.txt`, `bus.txt`, `modules.txt`, `X6886-specs.txt`). No phone access, no driver code written.
 
 ## VERDICT: NEEDS LIVE

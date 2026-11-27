@@ -1,7 +1,7 @@
 # X6886 (MT6789) FocalTech FT3683G touch port manifest
 
 Branch: `feat/x6886-real-port`. Done 100% offline: no adb, no fastboot, no kernel/XNU build, no flash.
-Files written: `kernel/x6886/hakios.x6886_touch.c` and this manifest only. No `build/`, Makefile or other driver changed.
+Files written: `drivers/input/hakios.x6886_touch.c` and this manifest only. No `build/`, Makefile or other driver changed.
 
 ## 1. Source proof
 
@@ -9,17 +9,17 @@ Files written: `kernel/x6886/hakios.x6886_touch.c` and this manifest only. No `b
 |---|---|---|
 | Framework (allowed source) | `refs/oosexgang-xnu-kernel-mtk-helio/kernel/overlay/bsd/dev/mtk_tcm.c` (505 lines) | genuine MediaTek SPI/GPIO/IRQ code; header at `:1-29` names MT6768 / TD4160 on SPI2; MMIO at `:42-46`, GPIO at `:63-124`, SPI at `:128-209`, bit-bang at `:216-267`, posting at `:397-444`, thread at `:448-505` |
 | Banned source | `refs/iscle-hakios-mt6762` | NOT read, NOT copied. It is the Qualcomm POCO X5 Pro tree; it contains no MTK SPI MMIO. No symbol, string or path from it appears in the new file (`grep -niE 'iscle|qualcomm|geni|rpmh|poco|wcn'` on the new driver → no hits) |
-| Device evidence | `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts`, `iomem.txt` | live FDT decompilation and `/proc/iomem` of this handset |
+| Device evidence | `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts`, `iomem.txt` | live FDT decompilation and `/proc/iomem` of this handset |
 | Dump evidence | `/home/berucrypt00/otadump/odm/firmware/Conf_MultipleTest.ini` | production FTS test config consumed by the shipped driver |
-| Derived analysis | `/home/berucrypt00/x6886-hakios/dump-analysis/touch.md`, `gap-ft-chipid.md` | `.ko` string/ELF evidence, explicitly marked VERIFIED vs INFERENCE |
+| Derived analysis | `/home/berucrypt00/x6886-hakios/docs/reference/dump-analysis/touch.md`, `gap-ft-chipid.md` | `.ko` string/ELF evidence, explicitly marked VERIFIED vs INFERENCE |
 
 Chip identity: `Conf_MultipleTest.ini:23` says `IC_Type=FT3683G`; `gap-ft-chipid.md:1.1-1.3` confirms every hard identifier (`focaltech_ft3683g.ko`, `modules.alias`, `modules.load`, `Conf_MultipleTest.ini`, live `modules.txt:70`) says FT3683G, and that `ft3682g` is only an ODM supplier label (`fdt.dts:1608`, one leftover string in the `.ko`). The driver therefore targets FT3683G, not TD4160 and not a Qualcomm part.
 
 ## 2. Every constant, with dump file:line
 
-`fdt.dts` below = `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts`;
+`fdt.dts` below = `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts`;
 `iomem.txt` = same directory; `ini` = `/home/berucrypt00/otadump/odm/firmware/Conf_MultipleTest.ini`;
-`touch.md` = `/home/berucrypt00/x6886-hakios/dump-analysis/touch.md`.
+`touch.md` = `/home/berucrypt00/x6886-hakios/docs/reference/dump-analysis/touch.md`.
 
 | Driver constant | Value | Verified source | Kept / changed from MT6768 |
 |---|---|---|---|
@@ -48,7 +48,7 @@ Chip identity: `Conf_MultipleTest.ini:23` says `IC_Type=FT3683G`; `gap-ft-chipid
 | Max frame length `SPI_FIFO_BYTES-2` | 30 | `mtk_tcm.c:144,173-175` (FIFO cap) | New bound for a single-CS FTS frame |
 | GPIO register offsets | `0x004,0x008,0x104,0x108,0x200,0x330` | `mtk_tcm.c:63-68` | Kept; `GPIO_MODE4 = 0x340` derived from the 8-pin/0x10 stride at `:68` (flagged as inference) |
 | SPI register offsets / CMD bits / DONE / spin 200000 | `0x00..0x28`, bits `0,2,8,9,12,13`, 200000 | `mtk_tcm.c:128-144,193` | Kept unchanged: this is the real MTK controller code |
-| pstore ring header | sig `0x43474244`, start `+4`, size `+8`, text `+12`, ring size `0x1000-12` | same convention as the sibling X6886 drivers (`kernel/x6886/hakios.x6886_battery.c:38-80`); memory region `fdt.dts:92,712-713` | New; `X6886_PSTORE_SIG` kept identical so this driver cannot corrupt their ring |
+| pstore ring header | sig `0x43474244`, start `+4`, size `+8`, text `+12`, ring size `0x1000-12` | same convention as the sibling X6886 drivers (`drivers/power/hakios.x6886_battery.c:38-80`); memory region `fdt.dts:92,712-713` | New; `X6886_PSTORE_SIG` kept identical so this driver cannot corrupt their ring |
 
 ## 3. What changed from the MT6768 reference
 

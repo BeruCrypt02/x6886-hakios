@@ -33,5 +33,5 @@ python3 tools/verify-x6886-final.py
 ```
 
 The verifier reads the final image, the committed loader blob, the scratch
-ELF under `/tmp/opencode/elf-final2/mtkloader.elf`, and the board/loader
+ELF under `/tmp/hakios-x6886/elf-final2/mtkloader.elf`, and the board/loader
 sources. It never flashes anything. If it reports `6/13`, rebuild the ELF first.

@@ -1,7 +1,7 @@
 # X6886 (MT6789) real MUSB USB2.0 + MediaTek T-PHY v2 port manifest
 
 Branch: `feat/x6886-real-port`. Done 100% offline: no adb, no fastboot, no kernel/XNU build, no flash, no runtime test.
-Files written: `kernel/x6886/hakios.x6886_usb.c` and this manifest only. No `build/`, Makefile, header, boot file or other driver touched.
+Files written: `drivers/core/hakios.x6886_usb.c` and this manifest only. No `build/`, Makefile, header, boot file or other driver touched.
 
 ## 1. Source proof
 
@@ -13,14 +13,14 @@ Files written: `kernel/x6886/hakios.x6886_usb.c` and this manifest only. No `bui
 | Genuine endpoint setup | same dir `musb_gadget.c` | bulk endpoint enable `:1537-1559`; `MUSB_TYPE_PROTO_SHIFT` comes from `mtk_musb_reg.h:109-110` |
 | Genuine role glue | same dir `mtk_dual_role.c` | DFP/UFP vs power/is_host mapping at `:20-52`; not ported, cited only |
 | Genuine PHY source | `refs/alps-device-modules-6.12/drivers/phy/mediatek/phy-mtk-tphy.c` | bank layout `:40-42`, USB2 register/bit definitions `:49-167`, `u2_phy_instance_init()` `:1303-1348`, `u2_phy_instance_power_on()` `:1350-1410`, `phy_v2_banks_init()` `:1756-1767`, dispatch `:2231-2281` |
-| Device truth | `device-dump/fdt.dts` | live FDT decompilation of this handset |
-| Device truth | `device-dump/iomem.txt`, `interrupts.txt`, `modules.txt` | live `/proc/iomem`, `/proc/interrupts`, `/proc/modules` |
+| Device truth | `devices/x6886/evidence/fdt.dts` | live FDT decompilation of this handset |
+| Device truth | `devices/x6886/evidence/iomem.txt`, `interrupts.txt`, `modules.txt` | live `/proc/iomem`, `/proc/interrupts`, `/proc/modules` |
 
 Chip identity: `fdt.dts:7458` says `compatible = "mediatek,mt6789-usb20"` — this is **MUSB**, not DWC3. `interrupts.txt:49` names the line `musb-hdrc`; `modules.txt:371-374` shows live `musb_hdrc`, `musb_main`, `phy_mtk_tphy`, `phy_generic`; `modules.txt:340` shows `phy_mtk_ufs` is a separate UFS PHY and was not copied. `modules.txt:193` (`musb_boost`) and `:370` (`usb_meta`) are Transsion/MTK add-ons, not used here. `fdt.dts:7517-7533` is `mediatek,fpga-u3phy` with `status = "disabled"` — deliberately ignored.
 
 ## 2. Every constant, with dump file:line
 
-`fdt.dts`, `iomem.txt`, `interrupts.txt`, `modules.txt` below are under `/home/berucrypt00/x6886-hakios/device-dump/`.
+`fdt.dts`, `iomem.txt`, `interrupts.txt`, `modules.txt` below are under `/home/berucrypt00/x6886-hakios/devices/x6886/evidence/`.
 Source line references without a prefix are in the two genuine MediaTek files named in §1.
 
 | Driver constant | Value | Verified source |
@@ -37,7 +37,7 @@ Source line references without a prefix are in the two genuine MediaTek files na
 | `dr_mode` | otg | `fdt.dts:7468`; role-switch at `:7469`; `usb-role-switch` caller alias at `:9318-9319` |
 | `X6886_USB_EP` | 1 | first bulk pair after EP0; existence is **read back** at runtime from indexed `FIFOSIZE` (`musb_core.h:506-533`) — not assumed from the dump |
 | `X6886_USB_MAX_PACKET` / FIFO code 6 | 64 B | `mtk_musb_reg.h:11` (`MUSB_EP0_FIFOSIZE 64`) and `:72-73` (size code encodes 8..4096 B); EP0 cap is reused as the debug channel's safe cap |
-| `X6886_RAMOOPS_PHYS` / `_SIZE` / sig | `0x480af000` / `0x1000` / `0x43474244` | `fdt.dts:92` (`ramoops.mem_address=0x48090000`, `mem_size=0xe0000`) and `fdt.dts:712-715` (pstore region); exact sub-window supplied by the task; ring layout `+0 sig, +4 start, +8 size, +12 data` matches `kernel/x6886/hakios.x6886_battery.c:38-80` |
+| `X6886_RAMOOPS_PHYS` / `_SIZE` / sig | `0x480af000` / `0x1000` / `0x43474244` | `fdt.dts:92` (`ramoops.mem_address=0x48090000`, `mem_size=0xe0000`) and `fdt.dts:712-715` (pstore region); exact sub-window supplied by the task; ring layout `+0 sig, +4 start, +8 size, +12 data` matches `drivers/power/hakios.x6886_battery.c:38-80` |
 | MUSB common/endpoint offsets | `0x00..0x7e`, FIFO `0x20+4*n`, indexed `0x10+off` | `mtk_musb_reg.h:197-258`, `:215`, `:260-298`, `:277-279` |
 | `MUSB_POWER` bits | ENSUSPEND/HSENAB/SOFTCONN | `mtk_musb_reg.h:19,20,25`; sequence `musb_core.c:1301-1309` |
 | `MUSB_DEVCTL` role bits | BDEVICE `0x80`, HM `0x04`, VBUS `0x18>>3` | `mtk_musb_reg.h:39-46`; decision `musb_core.c:3718-3725` and `:1981` |

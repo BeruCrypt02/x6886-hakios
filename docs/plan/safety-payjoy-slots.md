@@ -63,7 +63,7 @@ Exact path: `/home/berucrypt00/otadump/odm/etc/build.prop`
 189: ro.vendor.tran.anti.crack.p7.support=1
 ```
 
-Live confirmation in `/home/berucrypt00/hakios-x6886/device-dump/getprop.txt`:
+Live confirmation in `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/getprop.txt`:
 ```
 [ro.vendor.tran.anti.crack.p7.support]: [1]
 [ro.vendor.tran.arb_avb_img_version]: [6]
@@ -103,7 +103,7 @@ Relevant strings: `tran_is_para_correct p7 api=%d`, `verifyPara ver=20241015v01`
 | `/home/berucrypt00/otadump/vendor/lib64/vendor.transsion.hardware.security.paytrigger-V1-ndk.so` | AIDL `IPayTrigger` methods: `setDeviceLockInfo`, `getDeviceLockInfo`, `clearRpmbArea`, `getRpmbStatus`, `getHmacKey`, `importRsaMsgPub` |
 | `/home/berucrypt00/otadump/vendor/etc/init/vendor.transsion.hardware.security.paytrigger@1.0-service.rc` | `service paytrigger_hal_service /vendor/bin/hw/...` |
 | `/home/berucrypt00/otadump/system_ext/framework/paytrigger-simlock.jar` (+ oat/vdex) | SIM-lock side of the same mechanism |
-| `device-dump/getprop.txt` | `[init.svc.paytrigger_hal_service]: [running]`, `[init.svc_debug_pid.paytrigger_hal_service]: [1604]` |
+| `devices/x6886/evidence/getprop.txt` | `[init.svc.paytrigger_hal_service]: [running]`, `[init.svc_debug_pid.paytrigger_hal_service]: [1604]` |
 
 ---
 

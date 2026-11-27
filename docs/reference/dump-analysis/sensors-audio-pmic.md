@@ -11,7 +11,7 @@ Sources used:
 | Kernel config | `/home/berucrypt00/otadump/kernel_config.txt` |
 | File inventory | `/home/berucrypt00/otadump/all_files.txt` |
 | AP modules (A slot) | `odm_dlkm/lib/modules/`, `vendor_dlkm/lib/modules/`, `system_dlkm/lib/modules/`, `vendor_boot/ramdisk/lib/modules/` |
-| Live FDT | `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts` (350,179 bytes) |
+| Live FDT | `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts` (350,179 bytes) |
 | Sensor config | `odm/etc/vconfig/sensor/sensor_config.json` |
 | Audio config | `odm/etc/vconfig/audio/` |
 | NFC config | `odm/etc/vconfig/NFC/` |

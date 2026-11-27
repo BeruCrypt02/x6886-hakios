@@ -9,18 +9,18 @@ any boot image. Every command below is read-only on the device.
 
 | Claim | Evidence |
 |---|---|
-| Driver serialises all diagnostics with `[X6886-mali]` to `printf` **and** pstore | `kernel/x6886/hakios.x6886_mali.c:121-137` (`mali_log()`) |
+| Driver serialises all diagnostics with `[X6886-mali]` to `printf` **and** pstore | `drivers/gpu/hakios.x6886_mali.c:121-137` (`mali_log()`) |
 | Boot args are parsed by XNU `PE_parse_boot_argn()` | `hakios.x6886_mali.c:1431-1439` |
 | `reached` stages and `case 1 -> 5`, `case 2 -> 6` | `hakios.x6886_mali.c:783,803,837,892,896-906` |
 | Sysctl names | `hakios.x6886_mali.c:172-176,506-507` |
 | pstore sub-window and ring header | `hakios.x6886_mali.c:60-119` |
-| pstore region provenance | `device-dump/fdt.dts:92` (`ramoops.mem_address=0x48090000`, `mem_size=0xe0000`, `pmsg_size=0x80000`, `console_size=0x40000`) and `device-dump/fdt.dts:712-715` (`mblock-2-pstore`, `reg <0 0x48090000 0 0xe0000>`) |
+| pstore region provenance | `devices/x6886/evidence/fdt.dts:92` (`ramoops.mem_address=0x48090000`, `mem_size=0xe0000`, `pmsg_size=0x80000`, `console_size=0x40000`) and `devices/x6886/evidence/fdt.dts:712-715` (`mblock-2-pstore`, `reg <0 0x48090000 0 0xe0000>`) |
 | Console zone is `0x480af000`, not `0x480b0000` | `devices/x6886/board.toml:28-36` (non-zero `ftrace_size=0x1000` shifts it 4 KiB down) and `docs/HANDOFF-IOS27-BOOT.md:38,51` |
 | XNU boot-args assembly and printout | `build/loader/mtkloader.c:150-151,183-185,3000-3021` |
-| Stock GPU is real hardware, not a stub | `device-dump/modules.txt:199-203` (`mali_kbase_mt6789_a16w_jm 991232` with 74 users), `device-dump/getprop.txt:333` (`init.svc.gpu: [running]`), `:2363` (`ro.hardware.vulkan: [mali]`) |
-| GPU block base/IRQ | `device-dump/fdt.dts:5737-5741` (`mali@13000000`, `arm,mali-valhall`, SPI 396-400), `device-dump/iomem.txt:117`, `device-dump/interrupts.txt:159-161` |
+| Stock GPU is real hardware, not a stub | `devices/x6886/evidence/modules.txt:199-203` (`mali_kbase_mt6789_a16w_jm 991232` with 74 users), `devices/x6886/evidence/getprop.txt:333` (`init.svc.gpu: [running]`), `:2363` (`ro.hardware.vulkan: [mali]`) |
+| GPU block base/IRQ | `devices/x6886/evidence/fdt.dts:5737-5741` (`mali@13000000`, `arm,mali-valhall`, SPI 396-400), `devices/x6886/evidence/iomem.txt:117`, `devices/x6886/evidence/interrupts.txt:159-161` |
 
-The stock `device-dump/dmesg.txt` is a late-window capture (starts at uptime
+The stock `devices/x6886/evidence/dmesg.txt` is a late-window capture (starts at uptime
 31277 s) and contains **no** GPU lines; it cannot be used as proof either way.
 The loaded-module and property evidence above is the stock-side proof.
 
@@ -244,7 +244,7 @@ second job line and the `GPU_FAULT_STATUS` / `GPU_FAULT_ADDRESS` failure lines.
 `:1266`, but that snapshot is not printed.)
 If `reached` is 1-4, match the last `[X6886-mali]` line against the table above;
 do not enable `mali_hwctl=1` without owner sign-off on the X676C-reference
-gate offsets (`kernel/x6886/PORT-GPU.md` sections 2b and 6, gap 7).
+gate offsets (`drivers/gpu-driver.md` sections 2b and 6, gap 7).
 
 ---
 
@@ -252,7 +252,7 @@ gate offsets (`kernel/x6886/PORT-GPU.md` sections 2b and 6, gap 7).
 
 ```
 cd /home/berucrypt00/hakios-x6886
-./scripts/check-mali-v9.py
+./tools/check-mali-v9.py
 ```
 
 Result: **15/15 PASS**, exit 0, source SHA256

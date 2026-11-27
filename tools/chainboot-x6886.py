@@ -76,7 +76,7 @@ def main():
         import os
         import subprocess
         import tempfile
-        fd, tmp = tempfile.mkstemp(dir='/tmp/opencode')
+        fd, tmp = tempfile.mkstemp(dir='/tmp/hakios-x6886')
         os.close(fd)
         try:
             with open(tmp, 'wb') as f:

@@ -8,7 +8,7 @@
  *   (SPM power survey and the CONNSYS register windows)
  * Nothing is invented: every physical address is from the device's own fdt.dts / iomem.txt,
  * every firmware name from /vendor/firmware of the stock dump, and every register offset
- * from the two reference drivers named above. PORT-WIFI.md carries the line-by-line proof.
+ * from the two reference drivers named above. wifi-driver.md carries the line-by-line proof.
  *
  * The boot-args are connsys_step=N (1 survey, 2 require powered CONNSYS, 3 take the radio and
  * set up its rings, 4 download WIFI_RAM_CODE and wait for the firmware), and
@@ -129,7 +129,7 @@ x6886_pstore_write(const char *message, unsigned length)
  * fdt.dts:7575 wifi@18000000 interrupts <0 0x199 4 0> -> GICv3 441, line 356 "wlan0" (interrupts.txt:175)
  * fdt.dts:6961 consys interrupts 0x19a -> GIC 442 "BTIF_WAKEUP_IRQ" (interrupts.txt:174)
  *                                     0x19b -> GIC 443 "CONN_LOG_IRQ" (interrupts.txt:173)
- *                                     0x6f  -> GIC 143, not named in interrupts.txt (gap in PORT-WIFI.md)
+ *                                     0x6f  -> GIC 143, not named in interrupts.txt (gap in wifi-driver.md)
  * This driver does not claim a GIC line: gic_v3_irq.c in this tree installs only its own handler.
  * The Wi-Fi side is programmed for events and polled, exactly as the reference driver does. */
 #define X6886_WLAN0_SPI         0x199u

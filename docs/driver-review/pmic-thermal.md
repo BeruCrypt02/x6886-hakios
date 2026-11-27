@@ -5,8 +5,8 @@ document. Source tags match `docs/X6886-GPU-PLAN.md`:
 
 | Tag | Source |
 | :-- | :-- |
-| FDT | `device-dump/fdt.dts` (live device tree) |
-| PROC | `device-dump/interrupts.txt`, `iomem.txt`, `bus.txt`, `modules.txt`, `dmesg.txt`, `getprop.txt`, `X6886-specs.txt` |
+| FDT | `devices/x6886/evidence/fdt.dts` (live device tree) |
+| PROC | `devices/x6886/evidence/interrupts.txt`, `iomem.txt`, `bus.txt`, `modules.txt`, `dmesg.txt`, `getprop.txt`, `X6886-specs.txt` |
 | DUMP | `/home/berucrypt00/otadump` |
 | REF | `refs/` repositories |
 

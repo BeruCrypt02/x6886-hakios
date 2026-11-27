@@ -1,8 +1,8 @@
 # X6886 SC8950 safe-basic-charging port manifest
 
 Branch `feat/x6886-real-port`, 100% offline: no adb, no fastboot, no kernel build, no flash.
-Only `kernel/x6886/hakios.x6886_charger.c` and this manifest were written.
-`kernel/x6886/hakios.x6886_battery.c` was **not** modified.
+Only `drivers/power/hakios.x6886_charger.c` and this manifest were written.
+`drivers/power/hakios.x6886_battery.c` was **not** modified.
 
 ## Scope — read this first
 

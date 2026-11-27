@@ -6,7 +6,7 @@ source "$ROOT/env.sh"
 CLANG=$ROOT/tools/root/usr/lib/llvm-20/bin/clang
 LLD=$ROOT/tools/root/usr/lib/llvm-20/bin/ld.lld
 SRC=$ROOT/refs/oosexgang-xnu27/loader/link.ld
-OUT=/tmp/opencode/elf-final2
+OUT=/tmp/hakios-x6886/elf-final2
 mkdir -p "$OUT"
 
 # build.sh fallback when no touch firmware is present (the same stub used for mtkloader.bin)

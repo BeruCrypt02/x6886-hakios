@@ -4,10 +4,10 @@ Infinix Hot 60 Pro+ — MT6789V/T (Helio G200), UFS storage, 8 GB LPDDR4X,
 1080x2400 AMOLED. Stock XOS 16 / Android 16.
 
 This package follows the `devices/_template` layout of
-`refs/oosexgang-xnu27`: `board.toml` (this device), `soc/mt6789.toml` (the
+`refs/oosexgang-xnu27`: `board.toml` (this device), `socs/mt6789/soc.toml` (the
 chip). Every address is from the live FDT of serial `153857057T001452` or
-the stock dump; evidence is in `device-dump/HARDWARE-IDENTITY.md` and
-`dump-analysis/FINDINGS.md`. The earlier DTS files in `device/x6886/` are
+the stock dump; evidence is in `devices/x6886/evidence/HARDWARE-IDENTITY.md` and
+`docs/reference/dump-analysis/FINDINGS.md`. The earlier DTS files in `devices/x6886/legacy/` are
 from the superseded `hakios-common` layout and are kept for reference only.
 
 ## Status (nothing enabled yet)
@@ -16,7 +16,7 @@ from the superseded `hakios-common` layout and are kept for reference only.
 - Storage is **UFS** (`ufshci@11270000`), not eMMC. The XNU UFS driver already
   exists and builds (`xnu-12377-hakios/bsd/dev/board/ufshc.c`, `ufs.c`); the
   loader side (`mtkloader`) must pass the controller address, added as
-  `ufs = 0x11270000` in `soc/mt6789.toml`.
+  `ufs = 0x11270000` in `socs/mt6789/soc.toml`.
 - Panel: nt37706a (BOE), 144 Hz, DSI video + DSC. Touch: FocalTech FT3683G
   on spi1. Fingerprint: Goodix optical FOD on spi3.
 

@@ -3,19 +3,19 @@
 Offline audit, 24 Nov 2026. Every claim below points at a file in `otadump`,
 `x6886-hakios/device-dump`, or `x6886-hakios/refs`. No adb, no fastboot, no
 writes to loader, kernel trees, or boot images. Sibling document:
-`docs/DRIVER-MATRIX.md` tracks bring-up phases; this file tracks hardware
+`docs/driver-matrix.md` tracks bring-up phases; this file tracks hardware
 identity and driver gaps.
 
 ## Evidence sources
 
 | Path | What it gives | Caveat |
 | --- | --- | --- |
-| `device-dump/fdt.dts` | Live `/sys/firmware/fdt` decompile. Node names, compatibles, GPIOs, regulators, register bases | Device tree is stock Linux. It does not give register programming sequences |
-| `device-dump/iomem.txt` | Linux's view of occupied physical ranges | Kernel-owned ranges only; LK's framebuffer is absent |
-| `device-dump/modules.txt` | Modules loaded on the running stock kernel | Shows what Linux uses, not what XNU has |
+| `devices/x6886/evidence/fdt.dts` | Live `/sys/firmware/fdt` decompile. Node names, compatibles, GPIOs, regulators, register bases | Device tree is stock Linux. It does not give register programming sequences |
+| `devices/x6886/evidence/iomem.txt` | Linux's view of occupied physical ranges | Kernel-owned ranges only; LK's framebuffer is absent |
+| `devices/x6886/evidence/modules.txt` | Modules loaded on the running stock kernel | Shows what Linux uses, not what XNU has |
 | `otadump/all_files.txt` | Firmware blobs, HAL libraries, vendor `.ko` files | Filename list; no binary analysis done here |
 | `otadump/kernel_version.txt:1` | `6.12.38-android16-5-gb575a0b6e647-ab14355190-4k`, built 29 Oct 2025 | Device-dump `version.txt` reports a different build stamp, `6.12.38-android16-Nyanmaru` (12 Nov 2026). Both are kernel 6.12.38 |
-| `device-dump/HARDWARE-IDENTITY.md` | Board survey from the live device and the spec PDF | Some IC names there come from the PDF, not the DTB. DTB wins where they disagree |
+| `devices/x6886/evidence/HARDWARE-IDENTITY.md` | Board survey from the live device and the spec PDF | Some IC names there come from the PDF, not the DTB. DTB wins where they disagree |
 | `refs/hakios-mtk/xnu/files/bsd/dev/` | XNU BSD device drivers from the HakiOS MediaTek line | Written for POCO X5 Pro (redwood, MT6768) and Infinix Hot 20 (X6826B, MT6768). No MT6789 driver in this directory |
 | `refs/oosexgang-xnu27/docs/drivers.md` | Boot-arg and feature table for those drivers | States which parts are phone-independent and which need a port |
 | `refs/unixnu-mt6789/README.md:1-16` | MT6789 scaffold for UniXNU | Explicitly "not a complete SoC driver implementation" |
@@ -266,7 +266,7 @@ Flags:
 - REGISTER MISMATCH. `redwood_mtkbatt.c:2-25` reads an MT6358 fuel gauge and
   derives charge from `FGADC_CAR_CON0/1` at `0xd14`/`0xd16`. It also says no
   charger chip is driven.
-- KNOWN BUG. `device-dump/dmesg.txt:5510` reports
+- KNOWN BUG. `devices/x6886/evidence/dmesg.txt:5510` reports
   `power_supply charger: driver reporting unavailable enum value 1` on stock.
   Treat stock charger properties as imperfect until cross-checked.
 

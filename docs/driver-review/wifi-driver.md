@@ -33,14 +33,14 @@ Destination: `refs/xnu-12377-hakios/bsd/dev/firmware/x6886/`
 
 | Blob | Bytes | SHA256 | Source line proof |
 |---|---:|---|---|
-| `WIFI_RAM_CODE_soc2_2_1d_1.bin` | 712676 | `fd19001193470a7076216cf36db017758b388a6a0ee2e9a0043a21f0dff27f4f` | `dump-analysis/firmware.md:49`; file in stock `vendor/firmware/` |
-| `WIFI_RAM_CODE_soc2_2_1e_1.bin` | 707284 | `3b3d32e9122f7400990daf9e50305b282b8612b899f37016d864656bdf22c263` | `dump-analysis/firmware.md:50` |
-| `soc2_2_ram_wifi_1d_1_hdr.bin` | 241680 | `3389422ea919f2448d349d21cc37deea8a2612415ecec2845d344a9be7c3a1c8` | `dump-analysis/firmware.md:51` |
-| `soc2_2_ram_wifi_1e_1_hdr.bin` | 243556 | `28ae8b595f54f45edb5292c02a35aa8de7c82d3e08daf339bb75019dcec14059` | `dump-analysis/firmware.md:52` |
+| `WIFI_RAM_CODE_soc2_2_1d_1.bin` | 712676 | `fd19001193470a7076216cf36db017758b388a6a0ee2e9a0043a21f0dff27f4f` | `docs/reference/dump-analysis/firmware.md:49`; file in stock `vendor/firmware/` |
+| `WIFI_RAM_CODE_soc2_2_1e_1.bin` | 707284 | `3b3d32e9122f7400990daf9e50305b282b8612b899f37016d864656bdf22c263` | `docs/reference/dump-analysis/firmware.md:50` |
+| `soc2_2_ram_wifi_1d_1_hdr.bin` | 241680 | `3389422ea919f2448d349d21cc37deea8a2612415ecec2845d344a9be7c3a1c8` | `docs/reference/dump-analysis/firmware.md:51` |
+| `soc2_2_ram_wifi_1e_1_hdr.bin` | 243556 | `28ae8b595f54f45edb5292c02a35aa8de7c82d3e08daf339bb75019dcec14059` | `docs/reference/dump-analysis/firmware.md:52` |
 
 `file(1)` reports `data` for all four; nothing executable was copied. The `_hdr.bin` files are carried
 for a later WMT patch stage; the driver in this commit downloads only the `WIFI_RAM_CODE_*` files.
-`dump-analysis/firmware.md:299-302` shows the stock module asks for `WIFI_RAM_CODE_soc2_2` and the
+`docs/reference/dump-analysis/firmware.md:299-302` shows the stock module asks for `WIFI_RAM_CODE_soc2_2` and the
 chip ID is auto-detected (`persist.vendor.connsys.chipid=-1` in `vendor/build.prop:601`), so the
 driver accepts `connsys_chip=1d` (default, per `firmware.md:302`) or `connsys_chip=1e`.
 
@@ -52,7 +52,7 @@ and `0x386000`, both inside the 5 MB CONNSYS EMI from the device tree. No format
 ## 3. Every adapted physical address / IRQ, with file:line
 
 Evidence files are the device's own dumps:
-`/home/berucrypt00/x6886-hakios/device-dump/fdt.dts`, `iomem.txt`, `interrupts.txt`.
+`/home/berucrypt00/x6886-hakios/devices/x6886/evidence/fdt.dts`, `iomem.txt`, `interrupts.txt`.
 (The stock dump at `/home/berucrypt00/otadump` has no fdt/iomem/interrupts text; these dumps were
 produced from that same device and are the only fdt evidence available. The fdt-compatible string
 `mediatek,mt6789-consys` at `fdt.dts:6956` pins them to this SoC.)
@@ -100,7 +100,7 @@ firmware format was independently checked against the X6886 blobs (section 2).
    `mt6789-mt6366.ko` in `vendor_dlkm`). No verified MT6366 VCN register map exists in the local
    refs. Power-on is therefore an error return, not a guess.
 3. **CONNSYS patch / WMT stage** — `wmt_launcher` expects `connsys_mt6835_mt6631.bin` and
-   `connsys_mt6835_mt6635.bin`, neither present in the dump (`dump-analysis/firmware.md:299`).
+   `connsys_mt6835_mt6635.bin`, neither present in the dump (`docs/reference/dump-analysis/firmware.md:299`).
    WMT steps 5–11 of `mtk_connsys.c` are not ported.
 4. **GIC handler** — `osfmk/arm64/gic_v3_irq.c:583` only installs the kernel's own handler; there is
    no driver-facing interrupt-registration API in this tree. Wi-Fi events are therefore polled from

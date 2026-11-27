@@ -10,9 +10,9 @@ Sources used:
 - `/home/berucrypt00/otadump/vendor_boot/ramdisk/lib/modules/*.ko`
 - `/home/berucrypt00/otadump/odm/etc/vconfig/display/*.xml`
 - `/home/berucrypt00/otadump/kernel_config.txt`
-- `/home/berucrypt00/hakios-x6886/device-dump/fdt.dts` (live FDT decompile)
-- `/home/berucrypt00/hakios-x6886/board/x6886-base.dts` (stock DT decompile)
-- `/home/berucrypt00/hakios-x6886/device-dump/modules.txt`, `getprop.txt`, `display.txt`, `dmesg.txt`
+- `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/fdt.dts` (live FDT decompile)
+- `/home/berucrypt00/hakios-x6886/devices/x6886/prebuilt/device-tree.dts` (stock DT decompile)
+- `/home/berucrypt00/hakios-x6886/devices/x6886/evidence/modules.txt`, `getprop.txt`, `display.txt`, `dmesg.txt`
 
 Tools: `file`, `modinfo`, `strings`, `readelf -S/-r/-x`, `nm -n -S`, `xxd`, plus inline byte-array decoding (analysis only, no code files produced).
 

@@ -5,7 +5,7 @@ no flash, no slot switch and no write to modem/NVRAM/IMEI/protect1/protect2.
 The driver was compiled into the offline XNU build in this session; no device
 boot or DSU test was performed.
 
-Final source path (main repo, git-tracked): `kernel/x6886/hakios.x6886_mali.c`
+Final source path (main repo, git-tracked): `drivers/gpu/hakios.x6886_mali.c`
 Build-tree path: `refs/xnu-12377-hakios/bsd/dev/hakios.x6886_mali.c`
 Both copies are byte-identical (1479 lines), sha256:
 `45f558dbde4ede6eab26854ce244d709e7dad41815f6d6c348ce89ea9fcac0b0`.
@@ -63,7 +63,7 @@ Job Manager slots at `0x1800/0x1880/0x1900` (`MaliValhallHw.h:66-69`,
 
 Evidence is the device's own dumps. The stock OTA dump at `/home/berucrypt00/otadump`
 contains no text fdt/iomem; `fdt.dts`, `iomem.txt` and `interrupts.txt` in
-`/home/berucrypt00/x6886-hakios/device-dump/` are git-tracked, unmodified captures
+`/home/berucrypt00/x6886-hakios/devices/x6886/evidence/` are git-tracked, unmodified captures
 from that same device.
 The SoC is pinned by `fdt.dts:5737-5738` (`mediatek,mali` + `arm,mali-valhall`) and
 `fdt.dts:1629-1630` (`mediatek,mt6789-scpsys`).

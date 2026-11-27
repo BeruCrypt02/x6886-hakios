@@ -6,7 +6,7 @@
  * (MT6768 / OmniVision TD4160 on SPI2). The TD4160 message language and its picture-fit
  * maths are removed. Only the MediaTek SPI MMIO, the GPIO bit-bang and the report-posting
  * path survive. Every address, pin, regulator, coordinate and limit below comes from the
- * device's own dump; PORT-TOUCH.md carries the file:line proof and the gaps.
+ * device's own dump; touch-driver.md carries the file:line proof and the gaps.
  *
  * Boot args: x6886_touch=N (0 off, 1 readiness, 2 + GPIO power/reset and chip presence,
  * 3 + bounded polling), x6886_touch_ref=1 (opt-in for the MT6768-DERIVED GPIO/SPI
@@ -36,7 +36,7 @@ extern void ml_io_unmap(vm_offset_t addr, vm_size_t size);
 extern kern_return_t thread_terminate(thread_t thread);
 extern void delay(int usec);
 
-/* ---- X6886 blocks: device-dump/fdt.dts and device-dump/iomem.txt -------------------------- */
+/* ---- X6886 blocks: devices/x6886/evidence/fdt.dts and devices/x6886/evidence/iomem.txt -------------------------- */
 
 #define X6886_SPI1_PHYS         0x11010000u     /* fdt.dts:4489, iomem.txt:96 */
 #define X6886_SPI_SIZE          0x100u          /* fdt.dts:4489 */

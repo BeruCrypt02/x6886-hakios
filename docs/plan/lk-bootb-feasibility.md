@@ -254,8 +254,8 @@ approved AVB exception. Flashing a stock-signed boot image cannot carry U-Boot.
 
 ## 5. Load address / position requirements — VERIFIED + INFERENCE
 
-* `device-dump/iomem.txt`: `40010000-421effff : Kernel code`, `42670000-429affff : Kernel data`.
-* `device-dump/cmdline.txt`: `bootopt=64S3,32N2,64N2`, `kvm-arm.mode=protected`, `gpt=1`,
+* `devices/x6886/evidence/iomem.txt`: `40010000-421effff : Kernel code`, `42670000-429affff : Kernel data`.
+* `devices/x6886/evidence/cmdline.txt`: `bootopt=64S3,32N2,64N2`, `kvm-arm.mode=protected`, `gpt=1`,
   `ramoops.mem_address=0x48090000`; UFS boot device in `ro.boot.boot_devices`
   (`soc/11270000.ufshci`).
 * Decompressed stock kernel Image has `text_offset = 0x0`, `magic ARMd` at 0x38 — modern
@@ -291,7 +291,7 @@ Does not transfer / needs rework for X6886:
 - Slot: reference writes only `boot_a`; this plan needs `boot_b` plus an approved slot switch.
 - Boot header: v2 → **v4**, page 4096, kernel offset 0x1000, LZ4 legacy instead of gzip.
 - SoC/DRAM: MT6768 eMMC MSDC0 @0x11230000 → MT6789 **UFS** (`ufshci`), load at ~0x40010000,
-  different GIC/UART/ramoops/framebuffer addresses (all in `device-dump/fdt.dts` if needed).
+  different GIC/UART/ramoops/framebuffer addresses (all in `devices/x6886/evidence/fdt.dts` if needed).
 - Security: reference assumes an unlocked bootloader and Magisk in boot_a. X6886 is **locked**,
   AVB green/enforcing, with a PayJoy fastboot gate. This is the main new blocker.
 - The `mtkloader` chain format (arm64 header with `res2`/`res3` carrying Image length and

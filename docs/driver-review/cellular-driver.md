@@ -1,7 +1,7 @@
 # X6886 (MT6789) cellular control channel port manifest
 
 Branch: `feat/x6886-real-port`. Work done 100% offline: no adb, no fastboot, no build, no flash,
-no device access. Only two files were written: `kernel/x6886/hakios.x6886_cell.c` and this manifest.
+no device access. Only two files were written: `drivers/modem/hakios.x6886_cell.c` and this manifest.
 No other driver, no `refs/` repo and no `build/` file was modified or staged.
 
 ## 1. Source proof (genuine MediaTek MT6789 code)
@@ -14,12 +14,12 @@ Everything translated comes from the 6.12 kernel module tree, never from guesswo
   `.../hif/ccci_ringbuf.h` — register windows, CCIF doorbell, ring control layout.
 - `.../port/port_cfg.c` — the char node named `ttyC0` (the AT command queues).
 
-Physical addresses and IRQs are from this device's own dumps (`device-dump/fdt.dts`,
-`device-dump/interrupts.txt`), not from the donor port.
+Physical addresses and IRQs are from this device's own dumps (`devices/x6886/evidence/fdt.dts`,
+`devices/x6886/evidence/interrupts.txt`), not from the donor port.
 
 ## 2. Constants with proof
 
-| Constant in driver | Value | Proof (`device-dump/…`) |
+| Constant in driver | Value | Proof (`devices/x6886/evidence/…`) |
 |---|---|---|
 | `X6886_DPMAIF_AO_PHYS` | `0x10014000` | `fdt.dts:4159` node `dpmaif@10014000`, reg index 0 at `:4161` |
 | `X6886_DPMAIF_PD_MD_PHYS` | `0x1022d000` | `fdt.dts:4161` reg index 1 |
@@ -35,7 +35,7 @@ Physical addresses and IRQs are from this device's own dumps (`device-dump/fdt.d
 | `X6886_SMEM_CACHED_PHYS` / size | `0x8c000000` / `0x16a0000` | `fdt.dts:549-553` `ap_md_c_smem` |
 | `X6886_SMEM_NC_PHYS` / size | `0x8e000000` / `0xe20000` | `fdt.dts:585-589` `ap_md_nc_smem` |
 | `X6886_CCCI_TAG_PHYS` / size | `0xbf5f0000` / `0x10000` | `fdt.dts:561-565` `ccci_tag_mem` |
-| ramoops `0x480af000`, sig `0x43474244` | — | established contract in `PORT-WIFI.md:7` and `hakios.x6886_wifi.c:35-48` (same branch) |
+| ramoops `0x480af000`, sig `0x43474244` | — | established contract in `wifi-driver.md:7` and `hakios.x6886_wifi.c:35-48` (same branch) |
 
 GIC numbers are the SPI plus the 32-line GIC SPI offset: `0xf1 = 241 -> 273`,
 `0xe2 = 226 -> 258`, `0xe3 = 227 -> 259`; the dump confirms each mapping by name.
@@ -137,7 +137,7 @@ written. This is reported as a gap, not papered over with a fake device.
 
 - `nl -ba` / `grep -n` on `fdt.dts` and `interrupts.txt` for every address and IRQ above.
 - Read of the full 665-line `ccci_dpmaif_v1_6789.c` and the four cited headers.
-- Read of existing `hakios.x6886_wifi.c` / `PORT-WIFI.md` to match the pstore and boot-arg
+- Read of existing `hakios.x6886_wifi.c` / `wifi-driver.md` to match the pstore and boot-arg
   conventions exactly.
 - `git grep` over every `refs/` repo and all its local/remote refs, plus a text-only scan
   of `build/ios27-overlay/`, for the audit patterns (result in section 5).
